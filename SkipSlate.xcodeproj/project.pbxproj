@@ -6,6 +6,60 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		4114229B2ED6BDC80084514E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 411422962ED6BDC80084514E /* Assets.xcassets */; };
+		4114229C2ED6BDC80084514E /* AspectRatio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422792ED6BDC80084514E /* AspectRatio.swift */; };
+		4114229D2ED6BDC80084514E /* SkipSlateApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422992ED6BDC80084514E /* SkipSlateApp.swift */; };
+		4114229E2ED6BDC80084514E /* AutoEditService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422842ED6BDC80084514E /* AutoEditService.swift */; };
+		4114229F2ED6BDC80084514E /* InspectorPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422902ED6BDC80084514E /* InspectorPanel.swift */; };
+		411422A02ED6BDC80084514E /* ProjectSetupWizardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422922ED6BDC80084514E /* ProjectSetupWizardView.swift */; };
+		411422A12ED6BDC80084514E /* AudioSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114227A2ED6BDC80084514E /* AudioSettings.swift */; };
+		411422A22ED6BDC80084514E /* AppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114228B2ED6BDC80084514E /* AppViewModel.swift */; };
+		411422A32ED6BDC80084514E /* Project.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114227E2ED6BDC80084514E /* Project.swift */; };
+		411422A42ED6BDC80084514E /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114228F2ED6BDC80084514E /* EditorView.swift */; };
+		411422A52ED6BDC80084514E /* MediaImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422862ED6BDC80084514E /* MediaImportService.swift */; };
+		411422A62ED6BDC80084514E /* ColorSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114227B2ED6BDC80084514E /* ColorSettings.swift */; };
+		411422A72ED6BDC80084514E /* MediaClip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114227D2ED6BDC80084514E /* MediaClip.swift */; };
+		411422A82ED6BDC80084514E /* RawDecodeService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422872ED6BDC80084514E /* RawDecodeService.swift */; };
+		411422A92ED6BDC80084514E /* ExportFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114227C2ED6BDC80084514E /* ExportFormat.swift */; };
+		411422AA2ED6BDC80084514E /* PlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114228C2ED6BDC80084514E /* PlayerViewModel.swift */; };
+		411422AB2ED6BDC80084514E /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422972ED6BDC80084514E /* ContentView.swift */; };
+		411422AC2ED6BDC80084514E /* WelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422942ED6BDC80084514E /* WelcomeView.swift */; };
+		411422AD2ED6BDC80084514E /* ResolutionPreset.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422802ED6BDC80084514E /* ResolutionPreset.swift */; };
+		411422AE2ED6BDC80084514E /* Segment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422812ED6BDC80084514E /* Segment.swift */; };
+		411422AF2ED6BDC80084514E /* AudioService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422832ED6BDC80084514E /* AudioService.swift */; };
+		411422B02ED6BDC80084514E /* TimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422932ED6BDC80084514E /* TimelineView.swift */; };
+		411422B12ED6BDC80084514E /* ProjectViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114228D2ED6BDC80084514E /* ProjectViewModel.swift */; };
+		411422B22ED6BDC80084514E /* PreviewPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422912ED6BDC80084514E /* PreviewPanel.swift */; };
+		411422B32ED6BDC80084514E /* ProjectType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4114227F2ED6BDC80084514E /* ProjectType.swift */; };
+		411422B42ED6BDC80084514E /* ColorPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422892ED6BDC80084514E /* ColorPalette.swift */; };
+		411422B52ED6BDC80084514E /* ExportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422852ED6BDC80084514E /* ExportService.swift */; };
+		411422B72ED6C3D70084514E /* AppColors.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422B62ED6C3D70084514E /* AppColors.swift */; };
+		411422BD2ED6CC580084514E /* ExportStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422B92ED6CC580084514E /* ExportStepView.swift */; };
+		411422BE2ED6CC580084514E /* ReviewStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422BC2ED6CC580084514E /* ReviewStepView.swift */; };
+		411422BF2ED6CC580084514E /* AutoEditSettingsStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422B82ED6CC580084514E /* AutoEditSettingsStepView.swift */; };
+		411422C02ED6CC580084514E /* MediaImportStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422BB2ED6CC580084514E /* MediaImportStepView.swift */; };
+		411422C12ED6CC580084514E /* GlobalStepIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422BA2ED6CC580084514E /* GlobalStepIndicator.swift */; };
+		411422C32ED6CFB30084514E /* AudioAnalysisEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422C22ED6CFB30084514E /* AudioAnalysisEngine.swift */; };
+		411422C52ED6CFBD0084514E /* AutoEditSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422C42ED6CFBD0084514E /* AutoEditSettings.swift */; };
+		411422C72ED6D58D0084514E /* TransitionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422C62ED6D58D0084514E /* TransitionService.swift */; };
+		411422C92ED6DC8A0084514E /* AutoEditTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422C82ED6DC8A0084514E /* AutoEditTheme.swift */; };
+		411422CB2ED6FD630084514E /* OptionChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422CA2ED6FD630084514E /* OptionChip.swift */; };
+		411422CD2ED745F40084514E /* EnhancedTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422CC2ED745F40084514E /* EnhancedTimelineView.swift */; };
+		411422CF2ED74D280084514E /* PlayerHostingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422CE2ED74D280084514E /* PlayerHostingView.swift */; };
+		411422D12ED74D570084514E /* FrameAnalysisService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422D02ED74D570084514E /* FrameAnalysisService.swift */; };
+		411422D32ED754890084514E /* HighlightReelSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422D22ED754890084514E /* HighlightReelSettings.swift */; };
+		411422D72ED754AA0084514E /* HighlightReelVisualAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422D62ED754AA0084514E /* HighlightReelVisualAnalyzer.swift */; };
+		411422D82ED754AA0084514E /* HighlightReelService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422D52ED754AA0084514E /* HighlightReelService.swift */; };
+		411422D92ED754AA0084514E /* HighlightReelMusicAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422D42ED754AA0084514E /* HighlightReelMusicAnalyzer.swift */; };
+		411422DB2ED7627B0084514E /* ColorWheelComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422DA2ED7627B0084514E /* ColorWheelComponents.swift */; };
+		411422DD2ED767CF0084514E /* PlayheadIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422DC2ED767CF0084514E /* PlayheadIndicator.swift */; };
+		411422E22ED797090084514E /* EditStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422E12ED797090084514E /* EditStepView.swift */; };
+		411422E32ED797090084514E /* AudioEditingStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422DE2ED797090084514E /* AudioEditingStepView.swift */; };
+		411422E42ED797090084514E /* ColorGradingStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422DF2ED797090084514E /* ColorGradingStepView.swift */; };
+		411422E52ED797090084514E /* DaVinciStyleLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422E02ED797090084514E /* DaVinciStyleLayout.swift */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		411421EB2ED6B70B0084514E /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -24,9 +78,61 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		411421DC2ED6B7090084514E /* SkipSlate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SkipSlate.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		411421DC2ED6B7090084514E /* Auto Slate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Auto Slate.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		411421EA2ED6B70B0084514E /* SkipSlateTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SkipSlateTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		411421F42ED6B70B0084514E /* SkipSlateUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SkipSlateUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		411422792ED6BDC80084514E /* AspectRatio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AspectRatio.swift; sourceTree = "<group>"; };
+		4114227A2ED6BDC80084514E /* AudioSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSettings.swift; sourceTree = "<group>"; };
+		4114227B2ED6BDC80084514E /* ColorSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorSettings.swift; sourceTree = "<group>"; };
+		4114227C2ED6BDC80084514E /* ExportFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportFormat.swift; sourceTree = "<group>"; };
+		4114227D2ED6BDC80084514E /* MediaClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaClip.swift; sourceTree = "<group>"; };
+		4114227E2ED6BDC80084514E /* Project.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Project.swift; sourceTree = "<group>"; };
+		4114227F2ED6BDC80084514E /* ProjectType.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectType.swift; sourceTree = "<group>"; };
+		411422802ED6BDC80084514E /* ResolutionPreset.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ResolutionPreset.swift; sourceTree = "<group>"; };
+		411422812ED6BDC80084514E /* Segment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Segment.swift; sourceTree = "<group>"; };
+		411422832ED6BDC80084514E /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
+		411422842ED6BDC80084514E /* AutoEditService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEditService.swift; sourceTree = "<group>"; };
+		411422852ED6BDC80084514E /* ExportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportService.swift; sourceTree = "<group>"; };
+		411422862ED6BDC80084514E /* MediaImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportService.swift; sourceTree = "<group>"; };
+		411422872ED6BDC80084514E /* RawDecodeService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawDecodeService.swift; sourceTree = "<group>"; };
+		411422892ED6BDC80084514E /* ColorPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorPalette.swift; sourceTree = "<group>"; };
+		4114228B2ED6BDC80084514E /* AppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppViewModel.swift; sourceTree = "<group>"; };
+		4114228C2ED6BDC80084514E /* PlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewModel.swift; sourceTree = "<group>"; };
+		4114228D2ED6BDC80084514E /* ProjectViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectViewModel.swift; sourceTree = "<group>"; };
+		4114228F2ED6BDC80084514E /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
+		411422902ED6BDC80084514E /* InspectorPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InspectorPanel.swift; sourceTree = "<group>"; };
+		411422912ED6BDC80084514E /* PreviewPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewPanel.swift; sourceTree = "<group>"; };
+		411422922ED6BDC80084514E /* ProjectSetupWizardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectSetupWizardView.swift; sourceTree = "<group>"; };
+		411422932ED6BDC80084514E /* TimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineView.swift; sourceTree = "<group>"; };
+		411422942ED6BDC80084514E /* WelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeView.swift; sourceTree = "<group>"; };
+		411422962ED6BDC80084514E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		411422972ED6BDC80084514E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		411422982ED6BDC80084514E /* SkipSlate.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SkipSlate.entitlements; sourceTree = "<group>"; };
+		411422992ED6BDC80084514E /* SkipSlateApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkipSlateApp.swift; sourceTree = "<group>"; };
+		411422B62ED6C3D70084514E /* AppColors.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppColors.swift; sourceTree = "<group>"; };
+		411422B82ED6CC580084514E /* AutoEditSettingsStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEditSettingsStepView.swift; sourceTree = "<group>"; };
+		411422B92ED6CC580084514E /* ExportStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExportStepView.swift; sourceTree = "<group>"; };
+		411422BA2ED6CC580084514E /* GlobalStepIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalStepIndicator.swift; sourceTree = "<group>"; };
+		411422BB2ED6CC580084514E /* MediaImportStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaImportStepView.swift; sourceTree = "<group>"; };
+		411422BC2ED6CC580084514E /* ReviewStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewStepView.swift; sourceTree = "<group>"; };
+		411422C22ED6CFB30084514E /* AudioAnalysisEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioAnalysisEngine.swift; sourceTree = "<group>"; };
+		411422C42ED6CFBD0084514E /* AutoEditSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEditSettings.swift; sourceTree = "<group>"; };
+		411422C62ED6D58D0084514E /* TransitionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransitionService.swift; sourceTree = "<group>"; };
+		411422C82ED6DC8A0084514E /* AutoEditTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoEditTheme.swift; sourceTree = "<group>"; };
+		411422CA2ED6FD630084514E /* OptionChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OptionChip.swift; sourceTree = "<group>"; };
+		411422CC2ED745F40084514E /* EnhancedTimelineView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EnhancedTimelineView.swift; sourceTree = "<group>"; };
+		411422CE2ED74D280084514E /* PlayerHostingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerHostingView.swift; sourceTree = "<group>"; };
+		411422D02ED74D570084514E /* FrameAnalysisService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrameAnalysisService.swift; sourceTree = "<group>"; };
+		411422D22ED754890084514E /* HighlightReelSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightReelSettings.swift; sourceTree = "<group>"; };
+		411422D42ED754AA0084514E /* HighlightReelMusicAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightReelMusicAnalyzer.swift; sourceTree = "<group>"; };
+		411422D52ED754AA0084514E /* HighlightReelService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightReelService.swift; sourceTree = "<group>"; };
+		411422D62ED754AA0084514E /* HighlightReelVisualAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HighlightReelVisualAnalyzer.swift; sourceTree = "<group>"; };
+		411422DA2ED7627B0084514E /* ColorWheelComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorWheelComponents.swift; sourceTree = "<group>"; };
+		411422DC2ED767CF0084514E /* PlayheadIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayheadIndicator.swift; sourceTree = "<group>"; };
+		411422DE2ED797090084514E /* AudioEditingStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEditingStepView.swift; sourceTree = "<group>"; };
+		411422DF2ED797090084514E /* ColorGradingStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorGradingStepView.swift; sourceTree = "<group>"; };
+		411422E02ED797090084514E /* DaVinciStyleLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaVinciStyleLayout.swift; sourceTree = "<group>"; };
+		411422E12ED797090084514E /* EditStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditStepView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -79,17 +185,117 @@
 				411421ED2ED6B70B0084514E /* SkipSlateTests */,
 				411421F72ED6B70B0084514E /* SkipSlateUITests */,
 				411421DD2ED6B7090084514E /* Products */,
+				4114229A2ED6BDC80084514E /* SkipSlate */,
 			);
 			sourceTree = "<group>";
 		};
 		411421DD2ED6B7090084514E /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				411421DC2ED6B7090084514E /* SkipSlate.app */,
+				411421DC2ED6B7090084514E /* Auto Slate.app */,
 				411421EA2ED6B70B0084514E /* SkipSlateTests.xctest */,
 				411421F42ED6B70B0084514E /* SkipSlateUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		411422822ED6BDC80084514E /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				411422792ED6BDC80084514E /* AspectRatio.swift */,
+				4114227A2ED6BDC80084514E /* AudioSettings.swift */,
+				411422C42ED6CFBD0084514E /* AutoEditSettings.swift */,
+				4114227B2ED6BDC80084514E /* ColorSettings.swift */,
+				4114227C2ED6BDC80084514E /* ExportFormat.swift */,
+				4114227D2ED6BDC80084514E /* MediaClip.swift */,
+				411422D22ED754890084514E /* HighlightReelSettings.swift */,
+				4114227E2ED6BDC80084514E /* Project.swift */,
+				4114227F2ED6BDC80084514E /* ProjectType.swift */,
+				411422802ED6BDC80084514E /* ResolutionPreset.swift */,
+				411422812ED6BDC80084514E /* Segment.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		411422882ED6BDC80084514E /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				411422832ED6BDC80084514E /* AudioService.swift */,
+				411422842ED6BDC80084514E /* AutoEditService.swift */,
+				411422C62ED6D58D0084514E /* TransitionService.swift */,
+				411422D42ED754AA0084514E /* HighlightReelMusicAnalyzer.swift */,
+				411422D52ED754AA0084514E /* HighlightReelService.swift */,
+				411422D62ED754AA0084514E /* HighlightReelVisualAnalyzer.swift */,
+				411422D02ED74D570084514E /* FrameAnalysisService.swift */,
+				411422C22ED6CFB30084514E /* AudioAnalysisEngine.swift */,
+				411422852ED6BDC80084514E /* ExportService.swift */,
+				411422862ED6BDC80084514E /* MediaImportService.swift */,
+				411422872ED6BDC80084514E /* RawDecodeService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		4114228A2ED6BDC80084514E /* Utils */ = {
+			isa = PBXGroup;
+			children = (
+				411422892ED6BDC80084514E /* ColorPalette.swift */,
+				411422B62ED6C3D70084514E /* AppColors.swift */,
+				411422C82ED6DC8A0084514E /* AutoEditTheme.swift */,
+			);
+			path = Utils;
+			sourceTree = "<group>";
+		};
+		4114228E2ED6BDC80084514E /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				4114228B2ED6BDC80084514E /* AppViewModel.swift */,
+				4114228C2ED6BDC80084514E /* PlayerViewModel.swift */,
+				4114228D2ED6BDC80084514E /* ProjectViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		411422952ED6BDC80084514E /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				4114228F2ED6BDC80084514E /* EditorView.swift */,
+				411422902ED6BDC80084514E /* InspectorPanel.swift */,
+				411422CC2ED745F40084514E /* EnhancedTimelineView.swift */,
+				411422DE2ED797090084514E /* AudioEditingStepView.swift */,
+				411422DF2ED797090084514E /* ColorGradingStepView.swift */,
+				411422E02ED797090084514E /* DaVinciStyleLayout.swift */,
+				411422E12ED797090084514E /* EditStepView.swift */,
+				411422CE2ED74D280084514E /* PlayerHostingView.swift */,
+				411422CA2ED6FD630084514E /* OptionChip.swift */,
+				411422DC2ED767CF0084514E /* PlayheadIndicator.swift */,
+				411422DA2ED7627B0084514E /* ColorWheelComponents.swift */,
+				411422912ED6BDC80084514E /* PreviewPanel.swift */,
+				411422B82ED6CC580084514E /* AutoEditSettingsStepView.swift */,
+				411422B92ED6CC580084514E /* ExportStepView.swift */,
+				411422BA2ED6CC580084514E /* GlobalStepIndicator.swift */,
+				411422BB2ED6CC580084514E /* MediaImportStepView.swift */,
+				411422BC2ED6CC580084514E /* ReviewStepView.swift */,
+				411422922ED6BDC80084514E /* ProjectSetupWizardView.swift */,
+				411422932ED6BDC80084514E /* TimelineView.swift */,
+				411422942ED6BDC80084514E /* WelcomeView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4114229A2ED6BDC80084514E /* SkipSlate */ = {
+			isa = PBXGroup;
+			children = (
+				411422822ED6BDC80084514E /* Models */,
+				411422882ED6BDC80084514E /* Services */,
+				4114228A2ED6BDC80084514E /* Utils */,
+				4114228E2ED6BDC80084514E /* ViewModels */,
+				411422952ED6BDC80084514E /* Views */,
+				411422962ED6BDC80084514E /* Assets.xcassets */,
+				411422972ED6BDC80084514E /* ContentView.swift */,
+				411422982ED6BDC80084514E /* SkipSlate.entitlements */,
+				411422992ED6BDC80084514E /* SkipSlateApp.swift */,
+			);
+			path = SkipSlate;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -114,7 +320,7 @@
 			packageProductDependencies = (
 			);
 			productName = SkipSlate;
-			productReference = 411421DC2ED6B7090084514E /* SkipSlate.app */;
+			productReference = 411421DC2ED6B7090084514E /* Auto Slate.app */;
 			productType = "com.apple.product-type.application";
 		};
 		411421E92ED6B70B0084514E /* SkipSlateTests */ = {
@@ -212,6 +418,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4114229B2ED6BDC80084514E /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -236,6 +443,56 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				411422D72ED754AA0084514E /* HighlightReelVisualAnalyzer.swift in Sources */,
+				411422D82ED754AA0084514E /* HighlightReelService.swift in Sources */,
+				411422D92ED754AA0084514E /* HighlightReelMusicAnalyzer.swift in Sources */,
+				411422C72ED6D58D0084514E /* TransitionService.swift in Sources */,
+				4114229C2ED6BDC80084514E /* AspectRatio.swift in Sources */,
+				4114229D2ED6BDC80084514E /* SkipSlateApp.swift in Sources */,
+				411422D12ED74D570084514E /* FrameAnalysisService.swift in Sources */,
+				411422CD2ED745F40084514E /* EnhancedTimelineView.swift in Sources */,
+				4114229E2ED6BDC80084514E /* AutoEditService.swift in Sources */,
+				4114229F2ED6BDC80084514E /* InspectorPanel.swift in Sources */,
+				411422A02ED6BDC80084514E /* ProjectSetupWizardView.swift in Sources */,
+				411422A12ED6BDC80084514E /* AudioSettings.swift in Sources */,
+				411422A22ED6BDC80084514E /* AppViewModel.swift in Sources */,
+				411422A32ED6BDC80084514E /* Project.swift in Sources */,
+				411422A42ED6BDC80084514E /* EditorView.swift in Sources */,
+				411422A52ED6BDC80084514E /* MediaImportService.swift in Sources */,
+				411422A62ED6BDC80084514E /* ColorSettings.swift in Sources */,
+				411422CF2ED74D280084514E /* PlayerHostingView.swift in Sources */,
+				411422A72ED6BDC80084514E /* MediaClip.swift in Sources */,
+				411422A82ED6BDC80084514E /* RawDecodeService.swift in Sources */,
+				411422A92ED6BDC80084514E /* ExportFormat.swift in Sources */,
+				411422AA2ED6BDC80084514E /* PlayerViewModel.swift in Sources */,
+				411422B72ED6C3D70084514E /* AppColors.swift in Sources */,
+				411422AB2ED6BDC80084514E /* ContentView.swift in Sources */,
+				411422AC2ED6BDC80084514E /* WelcomeView.swift in Sources */,
+				411422D32ED754890084514E /* HighlightReelSettings.swift in Sources */,
+				411422AD2ED6BDC80084514E /* ResolutionPreset.swift in Sources */,
+				411422C52ED6CFBD0084514E /* AutoEditSettings.swift in Sources */,
+				411422DB2ED7627B0084514E /* ColorWheelComponents.swift in Sources */,
+				411422AE2ED6BDC80084514E /* Segment.swift in Sources */,
+				411422AF2ED6BDC80084514E /* AudioService.swift in Sources */,
+				411422CB2ED6FD630084514E /* OptionChip.swift in Sources */,
+				411422B02ED6BDC80084514E /* TimelineView.swift in Sources */,
+				411422C92ED6DC8A0084514E /* AutoEditTheme.swift in Sources */,
+				411422B12ED6BDC80084514E /* ProjectViewModel.swift in Sources */,
+				411422B22ED6BDC80084514E /* PreviewPanel.swift in Sources */,
+				411422B32ED6BDC80084514E /* ProjectType.swift in Sources */,
+				411422E22ED797090084514E /* EditStepView.swift in Sources */,
+				411422E32ED797090084514E /* AudioEditingStepView.swift in Sources */,
+				411422E42ED797090084514E /* ColorGradingStepView.swift in Sources */,
+				411422E52ED797090084514E /* DaVinciStyleLayout.swift in Sources */,
+				411422DD2ED767CF0084514E /* PlayheadIndicator.swift in Sources */,
+				411422C32ED6CFB30084514E /* AudioAnalysisEngine.swift in Sources */,
+				411422B42ED6BDC80084514E /* ColorPalette.swift in Sources */,
+				411422BD2ED6CC580084514E /* ExportStepView.swift in Sources */,
+				411422BE2ED6CC580084514E /* ReviewStepView.swift in Sources */,
+				411422BF2ED6CC580084514E /* AutoEditSettingsStepView.swift in Sources */,
+				411422C02ED6CC580084514E /* MediaImportStepView.swift in Sources */,
+				411422C12ED6CC580084514E /* GlobalStepIndicator.swift in Sources */,
+				411422B52ED6BDC80084514E /* ExportService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -402,6 +659,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Auto Slate";
+				INFOPLIST_KEY_CFBundleName = "Auto Slate";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -409,7 +668,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cetepay.SkipSlate;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Auto Slate";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -429,6 +688,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Auto Slate";
+				INFOPLIST_KEY_CFBundleName = "Auto Slate";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -436,7 +697,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.cetepay.SkipSlate;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "Auto Slate";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;

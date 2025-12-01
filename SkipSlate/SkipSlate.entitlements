@@ -2,9 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- App Sandbox: Restricts app to on-device processing only -->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
+	<!-- User-selected files only: No network access, no cloud APIs -->
+	<!-- Read access for importing media files -->
 	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+	<!-- Read/Write access for exporting video files -->
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<!-- Network access for stock video integration (Pexels backend) -->
+	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
 </plist>
