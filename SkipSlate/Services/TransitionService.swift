@@ -161,10 +161,14 @@ class TransitionService {
     }
     
     /// Creates video composition instructions with cross-dissolve transitions
+    /// CRITICAL: If resolution/aspectRatio are provided, use them; otherwise use project settings
+    /// This ensures export can use different resolution while maintaining the same framing/scaling as preview
     func createVideoCompositionWithTransitions(
         for composition: AVMutableComposition,
         segments: [Segment],
-        project: Project
+        project: Project,
+        resolution: ResolutionPreset? = nil,
+        aspectRatio: AspectRatio? = nil
     ) -> AVMutableVideoComposition? {
         // Get all video tracks - we need to find the one with actual video content
         // The first track is usually the main video track, but we should verify
@@ -178,12 +182,14 @@ class TransitionService {
             print("SkipSlate: TransitionService - Selected main video track ID: \(track.trackID), duration: \(CMTimeGetSeconds(track.timeRange.duration))s, naturalSize: \(track.naturalSize)")
         }
         
-        // Determine render size from project settings
-        var renderSize = CGSize(width: project.resolution.width, height: project.resolution.height)
+        // Determine render size - use provided resolution or fall back to project settings
+        let effectiveResolution = resolution ?? project.resolution
+        let effectiveAspectRatio = aspectRatio ?? project.aspectRatio
+        var renderSize = CGSize(width: effectiveResolution.width, height: effectiveResolution.height)
         
         // Verify aspect ratio matches
-        let presetRatio = Double(project.resolution.width) / Double(project.resolution.height)
-        let targetRatio = project.aspectRatio.ratio
+        let presetRatio = Double(effectiveResolution.width) / Double(effectiveResolution.height)
+        let targetRatio = effectiveAspectRatio.ratio
         let ratioDiff = abs(presetRatio - targetRatio)
         
         // If aspect ratio doesn't match, adjust dimensions to fit
@@ -233,10 +239,23 @@ class TransitionService {
         let allVideoTracksForFallback = composition.tracks(withMediaType: .video)
         print("SkipSlate: TransitionService - Found \(allVideoTracksForFallback.count) video tracks in composition")
         
+        // CRITICAL: For highlight reels, detect overlay track for video stacking
+        var overlayTrack: AVCompositionTrack?
+        if project.type == .highlightReel {
+            // Find overlay track (should be the last video track, or one that's not the main track)
+            let mainTrackID = videoTrack?.trackID
+            overlayTrack = allVideoTracksForFallback.first { track in
+                track.trackID != mainTrackID && track.timeRange.duration > .zero
+            }
+            if let overlay = overlayTrack {
+                print("SkipSlate: TransitionService - Found overlay track (ID: \(overlay.trackID)) for highlight reel video stacking")
+            }
+        }
+        
         // For image-only compositions, use the image timing track
         let imageTimingTrack = allVideoTracksForFallback.first { track in
             // Check if this is the image timing track (has segments but might be different from main video track)
-            return track != videoTrack
+            return track != videoTrack && track != overlayTrack
         }
         
         // Prefer the main video track, but fall back to image timing track or first available track
@@ -337,8 +356,31 @@ class TransitionService {
                 let instruction = AVMutableVideoCompositionInstruction()
                 instruction.timeRange = segmentTimeRange
                 
-                // Create layer instruction with the correct track
+                // Create layer instructions - main track first
+                var layerInstructions: [AVMutableVideoCompositionLayerInstruction] = []
+                
+                // Main video track layer
                 let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+                
+                // Apply Scale to Fill Frame transform if enabled for this segment
+                if segment.transform.scaleToFillFrame {
+                    // Use the track's natural size (already has preferredTransform applied)
+                    let sourceSize = track.naturalSize
+                    let projectSize = CGSize(width: project.resolution.width, height: project.resolution.height)
+                    
+                    // Calculate scale to fill transform
+                    let scaleTransform = transformForScaleToFill(
+                        sourceSize: sourceSize,
+                        projectSize: projectSize
+                    )
+                    
+                    // Apply transform at segment start time
+                    // The track already has preferredTransform baked in, so we just apply our scale transform
+                    layerInstruction.setTransform(scaleTransform, at: currentTime)
+                    
+                    print("SkipSlate: TransitionService - Applied Scale to Fill Frame transform for segment \(index) (source: \(sourceSize), project: \(projectSize))")
+                }
+                // If scaleToFillFrame is false, don't set transform - let AVFoundation use track's preferredTransform
                 
                 // CRITICAL: Handle opacity carefully to avoid overlapping ramps
                 if isLastSegment && fadeToBlackEnabled && fadeStart < segmentEnd {
@@ -370,7 +412,31 @@ class TransitionService {
                     }
                 }
                 
-                instruction.layerInstructions = [layerInstruction]
+                layerInstructions.append(layerInstruction)
+                
+                // CRITICAL: For highlight reels, add overlay track layer if it has content at this time
+                if project.type == .highlightReel, let overlay = overlayTrack {
+                    // Check if overlay track has content at this time range
+                    let overlayTimeRange = overlay.timeRange
+                    let overlayStart = overlayTimeRange.start
+                    let overlayEnd = CMTimeRangeGetEnd(overlayTimeRange)
+                    let intersection = overlayTimeRange.intersection(segmentTimeRange)
+                    let hasOverlayContent = (CMTimeCompare(currentTime, overlayStart) >= 0 && CMTimeCompare(currentTime, overlayEnd) < 0) ||
+                                            intersection.duration > .zero
+                    
+                    if hasOverlayContent {
+                        let overlayLayerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: overlay)
+                        // Overlay should be fully opaque (it fills black space)
+                        overlayLayerInstruction.setOpacity(1.0, at: currentTime)
+                        if !isLastSegment {
+                            overlayLayerInstruction.setOpacity(1.0, at: segmentEnd)
+                        }
+                        layerInstructions.append(overlayLayerInstruction)
+                        print("SkipSlate: TransitionService - Added overlay layer for highlight reel video stacking at \(CMTimeGetSeconds(currentTime))s")
+                    }
+                }
+                
+                instruction.layerInstructions = layerInstructions
                 instructions.append(instruction)
                 
                 if index < 3 || index == segments.count - 1 {
@@ -409,6 +475,47 @@ class TransitionService {
         }
         
         return videoComposition
+    }
+    
+    // MARK: - Transform Calculations
+    
+    /// Calculate transform to scale and center-crop video to fill project frame
+    /// - Parameters:
+    ///   - sourceSize: Natural size of the source video (after preferredTransform)
+    ///   - projectSize: Target project frame size
+    /// - Returns: CGAffineTransform that scales and centers the video to fill the frame
+    func transformForScaleToFill(sourceSize: CGSize, projectSize: CGSize) -> CGAffineTransform {
+        // Use absolute sizes
+        let srcWidth = abs(sourceSize.width)
+        let srcHeight = abs(sourceSize.height)
+        let projWidth = projectSize.width
+        let projHeight = projectSize.height
+        
+        guard srcWidth > 0, srcHeight > 0, projWidth > 0, projHeight > 0 else {
+            print("SkipSlate: ⚠️ Invalid sizes for Scale to Fill - source: \(sourceSize), project: \(projectSize)")
+            return .identity
+        }
+        
+        // Calculate scale factor to fill frame (scale to cover, not fit)
+        let scaleX = projWidth / srcWidth
+        let scaleY = projHeight / srcHeight
+        let scale = max(scaleX, scaleY)  // Use larger scale to ensure full coverage
+        
+        // Calculate scaled dimensions
+        let scaledWidth = srcWidth * scale
+        let scaledHeight = srcHeight * scale
+        
+        // Center the scaled image in the project frame
+        // Translation is applied in the scaled coordinate space
+        let tx = (projWidth - scaledWidth) / 2.0
+        let ty = (projHeight - scaledHeight) / 2.0
+        
+        // Build transform: scale first, then translate
+        var t = CGAffineTransform.identity
+        t = t.scaledBy(x: scale, y: scale)
+        t = t.translatedBy(x: tx / scale, y: ty / scale)
+        
+        return t
     }
 }
 

@@ -305,24 +305,5 @@ struct SegmentDropDelegate: DropDelegate {
     }
 }
 
-enum TimelineZoom: String, CaseIterable {
-    case fit
-    case x2
-    case x4
-    
-    var label: String {
-        switch self {
-        case .fit: return "Fit"
-        case .x2: return "2x"
-        case .x4: return "4x"
-        }
-    }
-    
-    var scale: CGFloat {
-        switch self {
-        case .fit: return 1.0
-        case .x2: return 2.0
-        case .x4: return 4.0
-        }
-    }
-}
+// TimelineZoom is now defined in TimelineViewModel.swift
+// This enum definition has been removed to avoid conflicts

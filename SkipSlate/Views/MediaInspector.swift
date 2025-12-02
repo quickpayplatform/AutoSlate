@@ -117,6 +117,7 @@ struct MediaInspector: View {
                     }
                 }
             }
+            .scrollIndicators(.hidden)
         }
     }
 }

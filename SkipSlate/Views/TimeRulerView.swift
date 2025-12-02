@@ -20,9 +20,26 @@ struct TimeRulerView: View {
     let zoomLevel: TimelineZoom
     let baseTimelineWidth: CGFloat
     let onSeek: (Double) -> Void
+    let frameRate: Double  // Frames per second (e.g., 24, 25, 30)
     
     // Height of the ruler
     private let rulerHeight: CGFloat = 30
+    
+    init(
+        playerViewModel: PlayerViewModel,
+        totalDuration: Double,
+        zoomLevel: TimelineZoom,
+        baseTimelineWidth: CGFloat,
+        onSeek: @escaping (Double) -> Void,
+        frameRate: Double = 30.0  // Default to 30 fps
+    ) {
+        self.playerViewModel = playerViewModel
+        self.totalDuration = totalDuration
+        self.zoomLevel = zoomLevel
+        self.baseTimelineWidth = baseTimelineWidth
+        self.onSeek = onSeek
+        self.frameRate = frameRate
+    }
     
     // Calculate content width based on zoom
     private var contentWidth: CGFloat {
@@ -35,6 +52,11 @@ struct TimeRulerView: View {
         return contentWidth / CGFloat(totalDuration)
     }
     
+    // Calculate frame duration
+    private var frameDuration: Double {
+        1.0 / frameRate
+    }
+    
     // Calculate time interval between markers based on zoom
     private var timeInterval: Double {
         switch zoomLevel {
@@ -45,7 +67,7 @@ struct TimeRulerView: View {
             // At 2x, show markers every 2 seconds
             return 2.0
         case .x4:
-            // At 4x, show markers every 1 second
+            // At 4x, show markers every 1 second, or every 10 frames if zoomed in more
             return 1.0
         }
     }
@@ -53,6 +75,18 @@ struct TimeRulerView: View {
     // Calculate sub-interval for minor ticks (half of main interval)
     private var subInterval: Double {
         return timeInterval / 2.0
+    }
+    
+    // Calculate tick interval for frame-level precision at high zoom
+    private var frameTickInterval: Double {
+        switch zoomLevel {
+        case .fit:
+            return 1.0  // 1 second ticks at fit
+        case .x2:
+            return 0.5  // 0.5 second ticks at 2x
+        case .x4:
+            return frameDuration * 10  // 10 frame ticks at 4x
+        }
     }
     
     var body: some View {
@@ -68,7 +102,8 @@ struct TimeRulerView: View {
                     time: marker.time,
                     xPosition: marker.xPosition,
                     isMajor: marker.isMajor,
-                    height: rulerHeight
+                    height: rulerHeight,
+                    frameRate: frameRate
                 )
             }
             
@@ -149,6 +184,24 @@ struct TimeRulerView: View {
             currentTime += subInterval
         }
         
+        // At high zoom (4x), add frame-level ticks
+        if zoomLevel == .x4 {
+            currentTime = frameTickInterval
+            while currentTime <= totalDuration {
+                // Skip if too close to existing markers
+                let isCloseToExisting = markers.contains { abs($0.time - currentTime) < 0.05 }
+                if !isCloseToExisting {
+                    let xPosition = CGFloat(currentTime) * pixelsPerSecond
+                    markers.append(TimeMarkerData(
+                        time: currentTime,
+                        xPosition: xPosition,
+                        isMajor: false
+                    ))
+                }
+                currentTime += frameTickInterval
+            }
+        }
+        
         // Sort by time
         return markers.sorted { $0.time < $1.time }
     }
@@ -174,6 +227,7 @@ private struct TimeMarker: View {
     let xPosition: CGFloat
     let isMajor: Bool
     let height: CGFloat
+    let frameRate: Double
     
     var body: some View {
         ZStack(alignment: .leading) {
@@ -194,10 +248,20 @@ private struct TimeMarker: View {
     }
     
     private func timeString(from seconds: Double) -> String {
+        // Convert to timecode format: HH:MM:SS:FF
         let totalSeconds = Int(seconds)
-        let minutes = totalSeconds / 60
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
         let secs = totalSeconds % 60
-        return String(format: "%d:%02d", minutes, secs)
+        
+        // Calculate frame number
+        let frameNumber = Int((seconds.truncatingRemainder(dividingBy: 1)) * frameRate)
+        
+        if hours > 0 {
+            return String(format: "%02d:%02d:%02d:%02d", hours, minutes, secs, frameNumber)
+        } else {
+            return String(format: "%02d:%02d:%02d", minutes, secs, frameNumber)
+        }
     }
 }
 

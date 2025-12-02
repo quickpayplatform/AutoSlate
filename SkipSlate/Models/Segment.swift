@@ -28,6 +28,13 @@ enum CompositionAnchor: String, Codable {
     case right
 }
 
+/// Transform settings for a segment (scale to fill, pan, etc.)
+struct SegmentTransform: Codable, Equatable {
+    var scaleToFillFrame: Bool = false  // When true, auto-compute scale/offset for full-frame coverage
+    
+    // Future: pan/scan controls can be added here
+}
+
 struct SegmentEffects: Codable {
     var transitionType: SegmentTransitionType = .none
     var transitionDuration: Double = 0.2  // seconds
@@ -67,6 +74,7 @@ struct Segment: Identifiable, Codable {
     var enabled: Bool
     var colorIndex: Int        // index into accent color palette (only used for clip segments)
     var effects: SegmentEffects = SegmentEffects()  // Only used for clip segments
+    var transform: SegmentTransform = SegmentTransform()  // Transform settings (scale to fill, etc.)
     
     // Composition timeline position (explicit start time in the final video)
     // This allows gaps - segments don't automatically shift when others are deleted
@@ -120,7 +128,8 @@ struct Segment: Identifiable, Codable {
         enabled: Bool = true,
         colorIndex: Int = 0,
         effects: SegmentEffects = SegmentEffects(),
-        compositionStartTime: Double = 0.0
+        compositionStartTime: Double = 0.0,
+        transform: SegmentTransform = SegmentTransform()
     ) {
         self.id = id
         self.kind = .clip
@@ -132,6 +141,7 @@ struct Segment: Identifiable, Codable {
         self.effects = effects
         self.compositionStartTime = compositionStartTime
         self.gapDuration = nil
+        self.transform = transform
     }
     
     // Convenience initializer for gap segments
@@ -150,6 +160,7 @@ struct Segment: Identifiable, Codable {
         self.effects = SegmentEffects()
         self.compositionStartTime = compositionStartTime
         self.gapDuration = gapDuration
+        self.transform = SegmentTransform()  // Gaps don't need transforms, but initialize for consistency
     }
 }
 

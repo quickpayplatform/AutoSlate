@@ -7,6 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		41007E3D2EDF97A800538886 /* TimeHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41007E3C2EDF979E00538886 /* TimeHeaderView.swift */; };
+		41007E3F2EDF97EA00538886 /* TimelineViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41007E3E2EDF97D300538886 /* TimelineViewModel.swift */; };
+		41007E412EDF980000538886 /* TrackHeaderView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41007E402EDF97F800538886 /* TrackHeaderView.swift */; };
+		41007E432EDF981100538886 /* AddTrackButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 41007E422EDF980A00538886 /* AddTrackButton.swift */; };
 		4114229B2ED6BDC80084514E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 411422962ED6BDC80084514E /* Assets.xcassets */; };
 		4114229C2ED6BDC80084514E /* AspectRatio.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422792ED6BDC80084514E /* AspectRatio.swift */; };
 		4114229D2ED6BDC80084514E /* SkipSlateApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422992ED6BDC80084514E /* SkipSlateApp.swift */; };
@@ -78,6 +82,10 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		41007E3C2EDF979E00538886 /* TimeHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimeHeaderView.swift; sourceTree = "<group>"; };
+		41007E3E2EDF97D300538886 /* TimelineViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineViewModel.swift; sourceTree = "<group>"; };
+		41007E402EDF97F800538886 /* TrackHeaderView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackHeaderView.swift; sourceTree = "<group>"; };
+		41007E422EDF980A00538886 /* AddTrackButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddTrackButton.swift; sourceTree = "<group>"; };
 		411421DC2ED6B7090084514E /* Auto Slate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Auto Slate.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		411421EA2ED6B70B0084514E /* SkipSlateTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SkipSlateTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		411421F42ED6B70B0084514E /* SkipSlateUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SkipSlateUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -135,9 +143,22 @@
 		411422E12ED797090084514E /* EditStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditStepView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		41007E3B2EDF977100538886 /* Exceptions for "SkipSlate" folder in "SkipSlate" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ViewModels/Untitled.swift,
+			);
+			target = 411421DB2ED6B7090084514E /* SkipSlate */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		411421DE2ED6B7090084514E /* SkipSlate */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				41007E3B2EDF977100538886 /* Exceptions for "SkipSlate" folder in "SkipSlate" target */,
+			);
 			path = SkipSlate;
 			sourceTree = "<group>";
 		};
@@ -250,6 +271,7 @@
 			children = (
 				4114228B2ED6BDC80084514E /* AppViewModel.swift */,
 				4114228C2ED6BDC80084514E /* PlayerViewModel.swift */,
+				41007E3E2EDF97D300538886 /* TimelineViewModel.swift */,
 				4114228D2ED6BDC80084514E /* ProjectViewModel.swift */,
 			);
 			path = ViewModels;
@@ -266,13 +288,16 @@
 				411422E02ED797090084514E /* DaVinciStyleLayout.swift */,
 				411422E12ED797090084514E /* EditStepView.swift */,
 				411422CE2ED74D280084514E /* PlayerHostingView.swift */,
+				41007E3C2EDF979E00538886 /* TimeHeaderView.swift */,
 				411422CA2ED6FD630084514E /* OptionChip.swift */,
 				411422DC2ED767CF0084514E /* PlayheadIndicator.swift */,
+				41007E422EDF980A00538886 /* AddTrackButton.swift */,
 				411422DA2ED7627B0084514E /* ColorWheelComponents.swift */,
 				411422912ED6BDC80084514E /* PreviewPanel.swift */,
 				411422B82ED6CC580084514E /* AutoEditSettingsStepView.swift */,
 				411422B92ED6CC580084514E /* ExportStepView.swift */,
 				411422BA2ED6CC580084514E /* GlobalStepIndicator.swift */,
+				41007E402EDF97F800538886 /* TrackHeaderView.swift */,
 				411422BB2ED6CC580084514E /* MediaImportStepView.swift */,
 				411422BC2ED6CC580084514E /* ReviewStepView.swift */,
 				411422922ED6BDC80084514E /* ProjectSetupWizardView.swift */,
@@ -446,6 +471,7 @@
 				411422D72ED754AA0084514E /* HighlightReelVisualAnalyzer.swift in Sources */,
 				411422D82ED754AA0084514E /* HighlightReelService.swift in Sources */,
 				411422D92ED754AA0084514E /* HighlightReelMusicAnalyzer.swift in Sources */,
+				41007E412EDF980000538886 /* TrackHeaderView.swift in Sources */,
 				411422C72ED6D58D0084514E /* TransitionService.swift in Sources */,
 				4114229C2ED6BDC80084514E /* AspectRatio.swift in Sources */,
 				4114229D2ED6BDC80084514E /* SkipSlateApp.swift in Sources */,
@@ -458,6 +484,9 @@
 				411422A22ED6BDC80084514E /* AppViewModel.swift in Sources */,
 				411422A32ED6BDC80084514E /* Project.swift in Sources */,
 				411422A42ED6BDC80084514E /* EditorView.swift in Sources */,
+				41007E3F2EDF97EA00538886 /* TimelineViewModel.swift in Sources */,
+				41007E3D2EDF97A800538886 /* TimeHeaderView.swift in Sources */,
+				41007E432EDF981100538886 /* AddTrackButton.swift in Sources */,
 				411422A52ED6BDC80084514E /* MediaImportService.swift in Sources */,
 				411422A62ED6BDC80084514E /* ColorSettings.swift in Sources */,
 				411422CF2ED74D280084514E /* PlayerHostingView.swift in Sources */,

@@ -13,6 +13,7 @@ struct DaVinciStyleLayout<Content: View>: View {
     @ObservedObject var projectViewModel: ProjectViewModel
     let content: Content
     var selectedTool: EditingTool = .select // Optional tool selection for edit step
+    var showTimeline: Bool = true // Whether to show the timeline panel
     
     @State private var rightSidebarWidth: CGFloat = 350
     @State private var timelineHeight: CGFloat = 400 // Default to half screen (will be calculated from geometry)
@@ -25,11 +26,13 @@ struct DaVinciStyleLayout<Content: View>: View {
         appViewModel: AppViewModel,
         projectViewModel: ProjectViewModel,
         selectedTool: EditingTool = .select,
+        showTimeline: Bool = true,
         @ViewBuilder content: () -> Content
     ) {
         self.appViewModel = appViewModel
         self.projectViewModel = projectViewModel
         self.selectedTool = selectedTool
+        self.showTimeline = showTimeline
         self.content = content()
     }
     
@@ -61,27 +64,29 @@ struct DaVinciStyleLayout<Content: View>: View {
                         
                         rightSidebar
                             .frame(width: rightSidebarWidth)
-                            .background(Color(white: 0.12))
+                            .background(appViewModel.currentStep == .media ? AppColors.background : Color(white: 0.12)) // Blend with background for media step
                     }
                 }
-                .frame(height: max(400, mainGeometry.size.height - timelineHeight))
+                .frame(height: showTimeline ? max(400, mainGeometry.size.height - timelineHeight) : mainGeometry.size.height)
                 
-                // Resizable divider for timeline
-                ResizableDivider(
-                    isResizing: $isResizingTimeline,
-                    isHorizontal: true,
-                    onResize: { delta in
-                        // Allow resizing smaller, but default is half screen
-                        let minHeight: CGFloat = 150
-                        let maxHeight = mainGeometry.size.height * 0.8
-                        timelineHeight = max(minHeight, min(maxHeight, timelineHeight - delta))
-                    }
-                )
-                
-                // Bottom timeline - always visible
-                timelinePanel
-                    .frame(height: timelineHeight)
-                    .background(Color(white: 0.10))
+                // Resizable divider for timeline (only show if timeline is visible)
+                if showTimeline {
+                    ResizableDivider(
+                        isResizing: $isResizingTimeline,
+                        isHorizontal: true,
+                        onResize: { delta in
+                            // Allow resizing smaller, but default is half screen
+                            let minHeight: CGFloat = 150
+                            let maxHeight = mainGeometry.size.height * 0.8
+                            timelineHeight = max(minHeight, min(maxHeight, timelineHeight - delta))
+                        }
+                    )
+                    
+                    // Bottom timeline
+                    timelinePanel
+                        .frame(height: timelineHeight)
+                        .background(Color(white: 0.10))
+                }
             }
             .onAppear {
                 // Set default timeline height to half screen on first appearance
@@ -157,43 +162,9 @@ struct DaVinciStyleLayout<Content: View>: View {
             Spacer()
             
             // Playback controls and timecode
-            HStack(spacing: 16) {
-                // Timecode display - use helper view to properly observe PlayerViewModel
-                TimecodeDisplay(playerViewModel: projectViewModel.playerVM)
-                
-                // Playback controls
-                Button(action: {
-                    projectViewModel.playerVM.seek(to: 0)
-                }) {
-                    Image(systemName: "backward.end.fill")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.white)
-                
-                Button(action: {
-                    if projectViewModel.playerVM.isPlaying {
-                        projectViewModel.playerVM.pause()
-                    } else {
-                        projectViewModel.playerVM.play()
-                    }
-                }) {
-                    Image(systemName: projectViewModel.playerVM.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 14))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.white)
-                
-                Button(action: {
-                    projectViewModel.playerVM.seek(to: projectViewModel.playerVM.duration)
-                }) {
-                    Image(systemName: "forward.end.fill")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.plain)
-                .foregroundColor(.white)
-            }
-            .padding(.horizontal, 16)
+            // CRITICAL: Use helper view that directly observes PlayerViewModel
+            TopBarPlaybackControls(playerViewModel: projectViewModel.playerVM)
+                .padding(.horizontal, 16)
         }
         .frame(height: 40)
         .background(Color(white: 0.10))
@@ -221,7 +192,53 @@ struct TimecodeDisplay: View {
         let frames = Int((time.truncatingRemainder(dividingBy: 1)) * 30)
         return String(format: "%02d:%02d:%02d:%02d", hours, minutes, seconds, frames)
     }
+}
+
+// Helper view for top bar playback controls that directly observes PlayerViewModel
+// CRITICAL: This ensures the play/pause button icon updates when playback state changes
+struct TopBarPlaybackControls: View {
+    @ObservedObject var playerViewModel: PlayerViewModel
+    
+    var body: some View {
+        HStack(spacing: 16) {
+            // Timecode display
+            TimecodeDisplay(playerViewModel: playerViewModel)
+            
+            // Playback controls
+            Button(action: {
+                playerViewModel.seek(to: 0)
+            }) {
+                Image(systemName: "backward.end.fill")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.white)
+            
+            Button(action: {
+                if playerViewModel.isPlaying {
+                    playerViewModel.pause()
+                } else {
+                    playerViewModel.play()
+                }
+            }) {
+                // CRITICAL: Reading isPlaying from directly observed playerViewModel ensures icon updates
+                Image(systemName: playerViewModel.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.white)
+            
+            Button(action: {
+                playerViewModel.seek(to: playerViewModel.duration)
+            }) {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(.white)
+        }
     }
+}
     
 extension DaVinciStyleLayout {
     private func canNavigateToStep(_ step: WizardStep) -> Bool {
@@ -271,7 +288,7 @@ extension DaVinciStyleLayout {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color(white: 0.08))
+            .background(appViewModel.currentStep == .media ? AppColors.background : Color(white: 0.08)) // Blend with background for media step
             
             Divider()
                 .background(Color(white: 0.15))
@@ -283,6 +300,8 @@ extension DaVinciStyleLayout {
                 }
                 .padding(12)
             }
+            .scrollIndicators(.hidden) // Hide the white scrollbar - users can still scroll with trackpad/mouse
+            .background(appViewModel.currentStep == .media ? AppColors.background : Color(white: 0.12)) // Blend with background for media step
         }
     }
     
@@ -322,10 +341,16 @@ extension DaVinciStyleLayout {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 20)
                     } else {
-                        ForEach(projectViewModel.clips) { clip in
-                            MediaClipRow(clip: clip, projectViewModel: projectViewModel)
+                        ScrollView {
+                            VStack(spacing: 12) {
+                                ForEach(projectViewModel.clips) { clip in
+                                    MediaClipRow(clip: clip, projectViewModel: projectViewModel)
+                                }
+                            }
                         }
                     }
+                    
+                    Spacer()
                 }
             } else {
                 // Hide Media inspector after auto-edit
@@ -373,6 +398,7 @@ extension DaVinciStyleLayout {
                 .background(Color(white: 0.15))
             
             // Timeline content - using EnhancedTimelineView as primary timeline
+            // Note: EnhancedTimelineView now manages its own TimelineViewModel internally
             EnhancedTimelineView(projectViewModel: projectViewModel, selectedTool: .select)
         }
     }
@@ -520,4 +546,5 @@ extension View {
         }
     }
 }
+
 

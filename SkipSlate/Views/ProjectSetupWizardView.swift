@@ -54,6 +54,7 @@ struct ProjectSetupWizardView: View {
                 }
                 .padding(40)
             }
+            .scrollIndicators(.hidden)
             .background(AppColors.background)
             
             Divider()
@@ -189,22 +190,47 @@ struct ProjectSetupWizardView: View {
     }
     
     private var step3View: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Project Name")
-                .font(.title)
-                .foregroundColor(.white)
+        VStack(alignment: .leading, spacing: 30) {
+            // Title section with subtitle
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Name your project")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundColor(AppColors.primaryText)
+                
+                Text("Give your project a memorable name to help you find it later.")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppColors.secondaryText)
+            }
+            .padding(.top, 20)
             
-            TextField("Untitled Project", text: $projectName)
-                .textFieldStyle(.roundedBorder)
-                .font(.title2)
-                .onAppear {
-                    if projectName.isEmpty {
-                        let formatter = DateFormatter()
-                        formatter.dateFormat = "MMM d, yyyy HH:mm"
-                        projectName = "Untitled Project \(formatter.string(from: Date()))"
+            // Project name input field
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Project Name")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(AppColors.primaryText)
+                
+                TextField("", text: $projectName, prompt: Text("Enter project name").foregroundColor(AppColors.tertiaryText))
+                    .font(.system(size: 16))
+                    .foregroundColor(.black)
+                    .accentColor(.black) // Cursor color
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .background(AppColors.cardBase)
+                    .cornerRadius(10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(AppColors.panelBorder.opacity(0.3), lineWidth: 1)
+                    )
+                    .onAppear {
+                        if projectName.isEmpty {
+                            let formatter = DateFormatter()
+                            formatter.dateFormat = "MMM d, yyyy HH:mm"
+                            projectName = "Untitled Project \(formatter.string(from: Date()))"
+                        }
                     }
-                }
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     
     private var canProceed: Bool {

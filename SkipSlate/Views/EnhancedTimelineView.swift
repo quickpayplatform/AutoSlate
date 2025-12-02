@@ -17,12 +17,28 @@ import AVFoundation
 
 struct EnhancedTimelineView: View {
     @ObservedObject var projectViewModel: ProjectViewModel
-    @State private var zoomLevel: TimelineZoom = .fit
+    // CRITICAL: Observe PlayerViewModel directly for preview observation rule
+    @ObservedObject private var playerViewModel: PlayerViewModel
+    @StateObject private var timelineViewModel = TimelineViewModel()
     @State private var draggingSegment: Segment?
     @State private var trimmingSegment: Segment?
     @State private var trimHandle: TrimHandle?
     @State private var dragOffset: CGFloat = 0
-    var selectedTool: EditingTool = .select // Tool selection from parent (for cursor changes)
+    
+    init(projectViewModel: ProjectViewModel, selectedTool: EditingTool = .select) {
+        self.projectViewModel = projectViewModel
+        self._playerViewModel = ObservedObject(wrappedValue: projectViewModel.playerVM)
+        // Map EditingTool to EditorTool
+        _timelineViewModel = StateObject(wrappedValue: {
+            let vm = TimelineViewModel()
+            switch selectedTool {
+            case .select: vm.currentTool = .segmentSelect
+            case .cut: vm.currentTool = .blade
+            case .trim: vm.currentTool = .trim
+            }
+            return vm
+        }())
+    }
     
     // Track height constants
     private let defaultTrackHeight: CGFloat = 60
@@ -37,11 +53,46 @@ struct EnhancedTimelineView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Timeline header with zoom controls
-            HStack {
+            // Timeline header with tools, zoom controls, and add track buttons
+            HStack(spacing: 12) {
                 Text("Timeline")
                     .font(.headline)
                     .foregroundColor(AppColors.primaryText)
+                
+                // Editor tool buttons (Select, Blade, Trim)
+                HStack(spacing: 4) {
+                    ForEach(EditorTool.allCases) { tool in
+                        Button(action: {
+                            timelineViewModel.currentTool = tool
+                            tool.cursor.push()
+                        }) {
+                            Image(systemName: tool.iconName)
+                                .font(.system(size: 14, weight: .medium))
+                                .frame(width: 24, height: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundColor(timelineViewModel.currentTool == tool ? AppColors.tealAccent : AppColors.secondaryText)
+                        .background(
+                            RoundedRectangle(cornerRadius: 4)
+                                .fill(timelineViewModel.currentTool == tool ? AppColors.tealAccent.opacity(0.2) : Color.clear)
+                        )
+                        .help(tool.helpText)
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(AppColors.panelBackground.opacity(0.5))
+                .cornerRadius(6)
+                
+                // Add track buttons
+                HStack(spacing: 4) {
+                    AddTrackButton(trackKind: .video) {
+                        projectViewModel.addTrack(kind: .video)
+                    }
+                    AddTrackButton(trackKind: .audio) {
+                        projectViewModel.addTrack(kind: .audio)
+                    }
+                }
                 
                 Spacer()
                 
@@ -49,11 +100,11 @@ struct EnhancedTimelineView: View {
                 HStack(spacing: 8) {
                     ForEach(TimelineZoom.allCases, id: \.self) { zoom in
                         Button(zoom.label) {
-                            zoomLevel = zoom
+                            timelineViewModel.zoomLevel = zoom
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .tint(zoomLevel == zoom ? AppColors.tealAccent : .gray)
+                        .tint(timelineViewModel.zoomLevel == zoom ? AppColors.tealAccent : .gray)
                     }
                 }
                 
@@ -75,15 +126,16 @@ struct EnhancedTimelineView: View {
                     let baseTimelineWidth: CGFloat = 1000
                     ScrollView(.horizontal, showsIndicators: false) {
                         TimeRulerView(
-                            playerViewModel: projectViewModel.playerVM,
+                            playerViewModel: playerViewModel,
                             totalDuration: totalDuration,
-                            zoomLevel: zoomLevel,
+                            zoomLevel: timelineViewModel.zoomLevel,
                             baseTimelineWidth: baseTimelineWidth,
                             onSeek: { time in
-                                projectViewModel.playerVM.seek(to: time, precise: true)
-                            }
+                                playerViewModel.seek(to: time, precise: true)
+                            },
+                            frameRate: 30.0  // TODO: Get from project settings
                         )
-                        .frame(width: baseTimelineWidth * zoomLevel.scale)
+                        .frame(width: baseTimelineWidth * timelineViewModel.zoomLevel.scale)
                     }
                 }
                 .frame(height: 30)
@@ -103,7 +155,7 @@ struct EnhancedTimelineView: View {
                 .frame(maxWidth: .infinity)
             } else {
                 GeometryReader { geometry in
-                    let contentWidth = baseTimelineWidth * zoomLevel.scale
+                    let contentWidth = baseTimelineWidth * timelineViewModel.zoomLevel.scale
                     let availableHeight = geometry.size.height
                     
                     ZStack(alignment: .leading) {
@@ -112,7 +164,7 @@ struct EnhancedTimelineView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .onHover { hovering in
                                 if hovering {
-                                    selectedTool.cursor.push()
+                                    timelineViewModel.currentTool.cursor.push()
                                 } else {
                                     NSCursor.pop()
                                 }
@@ -127,9 +179,9 @@ struct EnhancedTimelineView: View {
                                     TimelineTrackView(
                                         track: track,
                                         projectViewModel: projectViewModel,
-                                        playerViewModel: projectViewModel.playerVM,
+                                        playerViewModel: playerViewModel,
                                         totalDuration: totalDuration,
-                                        zoomLevel: zoomLevel,
+                                        zoomLevel: timelineViewModel.zoomLevel,
                                         trackHeight: currentTrackHeight,
                                         timelineWidth: contentWidth
                                     )
@@ -165,20 +217,20 @@ struct EnhancedTimelineView: View {
                         
                         // Playhead indicator (spans all tracks)
                         if totalDuration > 0 {
-                            // Convert EditingTool to TimelineTool for PlayheadIndicator
+                            // Convert EditorTool to TimelineTool for PlayheadIndicator
                             let timelineTool: TimelineTool = {
-                                switch selectedTool {
-                                case .select: return .cursor
-                                case .cut: return .cut
+                                switch timelineViewModel.currentTool {
+                                case .segmentSelect: return .cursor
+                                case .blade: return .cut
                                 case .trim: return .trim
                                 }
                             }()
                             
                             PlayheadIndicator(
-                                playerVM: projectViewModel.playerVM,
+                                playerVM: playerViewModel,
                                 totalDuration: totalDuration,
                                 timelineWidth: contentWidth,
-                                zoomLevel: zoomLevel,
+                                zoomLevel: timelineViewModel.zoomLevel,
                                 trackHeight: availableHeight,
                                 selectedTool: timelineTool
                             )
@@ -209,8 +261,7 @@ struct EnhancedTimelineView: View {
     }
     
     private func isSegmentPlaying(_ segment: Segment) -> Bool {
-        guard let playerVM = projectViewModel.playerVM as? PlayerViewModel else { return false }
-        let currentTime = playerVM.currentTime
+        let currentTime = playerViewModel.currentTime
         
         // Calculate composition start for this segment
         var compositionStart: Double = 0.0
@@ -292,7 +343,9 @@ struct EnhancedSegmentBlock: View {
     let isPlaying: Bool
     let totalDuration: Double
     let zoomLevel: TimelineZoom
-    let projectViewModel: ProjectViewModel
+    @ObservedObject var projectViewModel: ProjectViewModel
+    // CRITICAL: Observe PlayerViewModel directly for preview observation rule
+    @ObservedObject var playerViewModel: PlayerViewModel
     let onSelect: () -> Void
     let onToggle: () -> Void
     let onDelete: () -> Void
@@ -332,6 +385,7 @@ struct EnhancedSegmentBlock: View {
     private var width: CGFloat {
         let baseWidth: CGFloat = 1000 // Base timeline width
         let ratio = segment.duration / max(totalDuration, 1.0)
+        // Note: zoomLevel is passed from parent, not from timelineViewModel
         let scaledWidth = ratio * baseWidth * zoomLevel.scale
         return max(scaledWidth, 60) // Minimum 60 points for trim handles
     }
@@ -426,6 +480,7 @@ struct EnhancedSegmentBlock: View {
                 isHovered = hovering
             }
                             // Drag gesture for reordering - only when Select tool is active
+                            // Note: This uses selectedTool from parent, not timelineViewModel
                             .simultaneousGesture(
                                 selectedTool == .select ? 
                                     DragGesture(minimumDistance: 10)
@@ -433,8 +488,9 @@ struct EnhancedSegmentBlock: View {
                                             if !isDragging {
                                                 isDragging = true
                                                 dragStartX = value.startLocation.x
-                                                if projectViewModel.playerVM.isPlaying {
-                                                    projectViewModel.playerVM.pause()
+                                                // CRITICAL: Use directly observed playerViewModel
+                                                if playerViewModel.isPlaying {
+                                                    playerViewModel.pause()
                                                 }
                                             }
                                             onDrag(value.translation.width)
@@ -464,8 +520,9 @@ struct EnhancedSegmentBlock: View {
                                 if !isTrimming {
                                     isTrimming = true
                                     trimHandle = .start
-                                    if projectViewModel.playerVM.isPlaying {
-                                        projectViewModel.playerVM.pause()
+                                    // CRITICAL: Use directly observed playerViewModel
+                                    if playerViewModel.isPlaying {
+                                        playerViewModel.pause()
                                     }
                                 }
                                 
@@ -503,8 +560,9 @@ struct EnhancedSegmentBlock: View {
                                 if !isTrimming {
                                     isTrimming = true
                                     trimHandle = .end
-                                    if projectViewModel.playerVM.isPlaying {
-                                        projectViewModel.playerVM.pause()
+                                    // CRITICAL: Use directly observed playerViewModel
+                                    if playerViewModel.isPlaying {
+                                        playerViewModel.pause()
                                     }
                                 }
                                 
@@ -536,7 +594,8 @@ struct EnhancedSegmentBlock: View {
             Divider()
             
                             Button("Split at Playhead") {
-                                projectViewModel.splitSegment(segment, at: projectViewModel.playerVM.currentTime)
+                                // CRITICAL: Use directly observed playerViewModel
+                                projectViewModel.splitSegment(segment, at: playerViewModel.currentTime)
                             }
                             .disabled(!isSelected || !segment.enabled)
         }

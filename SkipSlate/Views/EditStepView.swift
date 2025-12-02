@@ -32,7 +32,15 @@ enum EditingTool: String, CaseIterable {
 struct EditStepView: View {
     @ObservedObject var appViewModel: AppViewModel
     @ObservedObject var projectViewModel: ProjectViewModel
+    // CRITICAL: Directly observe PlayerViewModel for playback state
+    @ObservedObject private var playerViewModel: PlayerViewModel
     @State private var selectedTool: EditingTool = .select
+    
+    init(appViewModel: AppViewModel, projectViewModel: ProjectViewModel) {
+        self.appViewModel = appViewModel
+        self.projectViewModel = projectViewModel
+        self._playerViewModel = ObservedObject(wrappedValue: projectViewModel.playerVM)
+    }
     
     var body: some View {
         DaVinciStyleLayout(
@@ -136,10 +144,11 @@ struct EditStepView: View {
         }
         .onKeyPress(.space) {
             // Spacebar to toggle play/pause
-            if projectViewModel.playerVM.isPlaying {
-                projectViewModel.playerVM.pause()
+            // CRITICAL: Use directly observed playerViewModel, not indirect access
+            if playerViewModel.isPlaying {
+                playerViewModel.pause()
             } else {
-                projectViewModel.playerVM.play()
+                playerViewModel.play()
             }
             return .handled
         }
@@ -178,7 +187,8 @@ struct EditStepView: View {
     
     private func handleCutAtPlayhead() {
         guard selectedTool == .cut else { return }
-        let playheadTime = projectViewModel.playerVM.currentTime
+        // CRITICAL: Use directly observed playerViewModel, not indirect access
+        let playheadTime = playerViewModel.currentTime
         
         // Find the segment that contains the playhead
         var accumulatedTime: Double = 0

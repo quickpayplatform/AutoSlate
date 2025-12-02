@@ -43,6 +43,7 @@ struct MediaListView: View {
                         }
                     }
                 }
+                .scrollIndicators(.hidden)
             }
         }
         .padding()

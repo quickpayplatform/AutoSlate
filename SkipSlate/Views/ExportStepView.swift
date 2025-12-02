@@ -84,6 +84,7 @@ struct ExportStepView: View {
                     .padding(.bottom, 40)
                 }
             }
+            .scrollIndicators(.hidden)
             .background(AutoEditTheme.bg)
             
             Divider()
@@ -127,7 +128,7 @@ struct ExportStepView: View {
                                 NSWorkspace.shared.activateFileViewerSelecting([url])
                             }
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(TealButtonStyle(isDisabled: false))
                         
                         Button("Back to Edit") {
                             appViewModel.currentStep = .edit
@@ -563,6 +564,7 @@ struct ExportStepView: View {
                 }
                 
                 // CRASH-PROOF: Export with comprehensive error handling and validation
+                // CRITICAL: Pass PlayerViewModel so export uses the same composition as preview (with audio!)
                 try await ExportService.shared.export(
                     project: projectViewModel.project,
                     to: url,
@@ -581,7 +583,8 @@ struct ExportStepView: View {
                                 self.exportProgress = clampedProgress
                             }
                         }
-                    }
+                    },
+                    playerViewModel: projectViewModel.playerVM
                 )
                 
                 // CRASH-PROOF: Validate export completed successfully with retries
@@ -707,6 +710,43 @@ struct SummaryRow: View {
                 .font(.system(size: 14, weight: .medium))
                 .foregroundColor(AutoEditTheme.primaryText)
         }
+    }
+}
+
+// MARK: - Teal Button Style
+
+struct TealButtonStyle: ButtonStyle {
+    let isDisabled: Bool
+    
+    // Teal color matching the app's teal accent
+    private let tealColor = AutoEditTheme.teal
+    private let tealColorDisabled = AutoEditTheme.teal.opacity(0.5) // Dimmed teal when disabled
+    
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(.white)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 12)
+            .frame(minWidth: 140)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isDisabled ? tealColorDisabled : tealColor)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(
+                        configuration.isPressed && !isDisabled ? Color.white.opacity(0.3) : Color.clear,
+                        lineWidth: 2
+                    )
+            )
+            .shadow(
+                color: isDisabled ? .clear : tealColor.opacity(0.4),
+                radius: configuration.isPressed ? 4 : 8,
+                x: 0,
+                y: configuration.isPressed ? 2 : 4
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
     }
 }
 

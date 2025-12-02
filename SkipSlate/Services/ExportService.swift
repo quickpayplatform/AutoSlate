@@ -57,7 +57,8 @@ class ExportService {
         format: ExportFormat,
         resolution: ResolutionPreset,
         quality: ExportQuality,
-        progressHandler: @escaping (Double) -> Void
+        progressHandler: @escaping (Double) -> Void,
+        playerViewModel: PlayerViewModel? = nil
     ) async throws {
         // CRASH-PROOF: Comprehensive input validation
         guard !project.segments.isEmpty else {
@@ -95,14 +96,23 @@ class ExportService {
             )
         }
         
-        // CRASH-PROOF: Build composition with error handling
+        // CRITICAL: Use PlayerViewModel's composition if available (the one that works for preview!)
+        // This ensures export matches exactly what the user sees and hears in preview
         let composition: AVMutableComposition
         do {
-            composition = try await buildComposition(
-                from: project,
-                resolution: resolution,
-                aspectRatio: project.aspectRatio
-            )
+            if let playerVM = playerViewModel {
+                print("SkipSlate: ExportService - Using PlayerViewModel's composition (same as preview)")
+                // Use the exact same buildComposition method that works for preview
+                composition = try await playerVM.buildComposition(from: project)
+            } else {
+                print("SkipSlate: ExportService - Building new composition (PlayerViewModel not provided)")
+                // Fallback to ExportService's buildComposition if PlayerViewModel not available
+                composition = try await buildComposition(
+                    from: project,
+                    resolution: resolution,
+                    aspectRatio: project.aspectRatio
+                )
+            }
         } catch {
             print("SkipSlate: ❌ ExportService - Failed to build composition: \(error)")
             throw NSError(
@@ -124,23 +134,78 @@ class ExportService {
             )
         }
         
-        // CRASH-PROOF: Create video composition with error handling
+        // ========================================================================
+        // CRITICAL: Use PlayerViewModel's video composition (EXACT same as preview!)
+        // ========================================================================
+        // ExportService MUST use the exact same video composition method that PlayerViewModel
+        // uses for preview. This ensures:
+        // 1. Same scaling/framing logic (frame-filling for highlight reels)
+        // 2. Same custom compositors (ColorCorrectionCompositor/ImageAwareCompositor)
+        // 3. Same transforms, transitions, and effects
+        // 4. NO DISCREPANCIES between preview and export
+        // ========================================================================
         let videoComposition: AVMutableVideoComposition?
-        do {
-            videoComposition = createVideoComposition(
-                for: composition,
-                settings: project.colorSettings,
+        if let playerVM = playerViewModel {
+            print("SkipSlate: ExportService - ✅ Using PlayerViewModel's video composition (EXACT same as preview)")
+            print("SkipSlate: ExportService - ⚠️ CRITICAL: This ensures export matches preview EXACTLY - same frame-filling, same scaling, same everything")
+            videoComposition = playerVM.videoComposition(
+                for: project.colorSettings,
                 resolution: resolution,
                 aspectRatio: project.aspectRatio
             )
-        } catch {
-            print("SkipSlate: ⚠️ ExportService - Failed to create video composition: \(error)")
-            videoComposition = nil // Continue without video composition
+            if videoComposition != nil {
+                print("SkipSlate: ExportService - ✅ Video composition created - export will match preview exactly")
+            } else {
+                print("SkipSlate: ExportService - ⚠️ WARNING: Video composition is nil - export may not match preview")
+            }
+        } else {
+            // Fallback: Create video composition using ExportService's method
+            print("SkipSlate: ExportService - Creating video composition (PlayerViewModel not provided)")
+            do {
+                videoComposition = createVideoComposition(
+                    for: composition,
+                    settings: project.colorSettings,
+                    resolution: resolution,
+                    aspectRatio: project.aspectRatio
+                )
+            } catch {
+                print("SkipSlate: ⚠️ ExportService - Failed to create video composition: \(error)")
+                videoComposition = nil // Continue without video composition
+            }
         }
         
         // CRASH-PROOF: Create audio mix with error handling
+        // Only create audio mix if composition has audio tracks with valid content
         let enabledSegments = project.segments.filter { $0.enabled }
+        let audioTracks = composition.tracks(withMediaType: .audio)
         let audioMix: AVAudioMix? = autoreleasepool {
+            // If no audio tracks, don't create an audio mix
+            guard !audioTracks.isEmpty else {
+                print("SkipSlate: ExportService - No audio tracks in composition, skipping audio mix creation")
+                return nil
+            }
+            
+            // Verify audio tracks have valid content (segments and duration)
+            var hasValidAudioTracks = false
+            var totalSegments = 0
+            for track in audioTracks {
+                let segments = track.segments ?? []
+                totalSegments += segments.count
+                let duration = CMTimeGetSeconds(track.timeRange.duration)
+                if !duration.isNaN && duration > 0 && !segments.isEmpty {
+                    hasValidAudioTracks = true
+                }
+            }
+            
+            guard hasValidAudioTracks else {
+                if totalSegments == 0 {
+                    print("SkipSlate: ExportService - Audio tracks exist but are empty (no audio segments), skipping audio mix")
+                } else {
+                    print("SkipSlate: ExportService - ⚠ WARNING - Audio tracks exist but have invalid duration, skipping audio mix")
+                }
+                return nil
+            }
+            
             // Try TransitionService first (for crossfades)
             if let transitionMix = TransitionService.shared.createAudioMixWithTransitions(
                 for: composition,
@@ -424,12 +489,19 @@ class ExportService {
             throw ExportError.cannotCreateTrack
         }
         
-        guard let audioTrack = composition.addMutableTrack(
+        // Always create audio track - we'll populate it if audio exists in the clips
+        // This ensures we don't miss audio due to incorrect hasAudioTrack property
+        let audioTrack = composition.addMutableTrack(
             withMediaType: .audio,
             preferredTrackID: kCMPersistentTrackID_Invalid
-        ) else {
+        )
+        
+        guard let audioTrack = audioTrack else {
+            print("SkipSlate: ExportService - ⚠️ WARNING - Could not create audio track")
             throw ExportError.cannotCreateTrack
         }
+        
+        let enabledSegments = project.segments.filter { $0.enabled }
         
         // Create image timing track for image segments
         guard let imageTimingTrack = composition.addMutableTrack(
@@ -446,7 +518,7 @@ class ExportService {
         
         // Calculate total duration for dummy video asset
         var totalDuration = CMTime.zero
-        let enabledSegments = project.segments.filter { $0.enabled }
+        // enabledSegments already defined above
         for segment in enabledSegments {
             totalDuration = CMTimeAdd(totalDuration, CMTime(seconds: segment.duration, preferredTimescale: timescale))
         }
@@ -578,6 +650,7 @@ class ExportService {
                                     of: sourceAudioTrack,
                                     at: .zero
                                 )
+                                print("SkipSlate: Export - ✓ Inserted audio-only clip '\(audioClip.fileName)' for image composition")
                             }
                         } catch {
                             print("SkipSlate: Error inserting audio for export: \(error)")
@@ -633,125 +706,143 @@ class ExportService {
                 print("SkipSlate: Error inserting video for export: \(error.localizedDescription)")
             }
             
-            // Insert audio if available - use hasAudioTrack property
-            if clip.hasAudioTrack {
-                do {
-                    let sourceAudioTracks = try await asset.loadTracks(withMediaType: .audio)
-                    if let sourceAudioTrack = sourceAudioTracks.first {
-                        // Safety check: Clamp sourceStart to valid range and validate timeRange
-                        let clampedStart = max(0.0, min(segment.sourceStart, clip.duration - 0.1))
-                        let maxDuration = clip.duration - clampedStart
-                        let clampedDuration = min(segmentDuration, CMTime(seconds: maxDuration, preferredTimescale: timescale))
-                        
-                        guard clampedDuration > .zero else {
-                            print("SkipSlate: ExportService - Warning: Invalid clamped duration for audio segment")
-                            continue
-                        }
-                        
-                        let sourceTimeRange = CMTimeRange(
-                            start: CMTime(seconds: clampedStart, preferredTimescale: timescale),
-                            duration: clampedDuration
-                        )
-                        
-                        // Safety check: Verify timeRange is valid
-                        guard sourceTimeRange.isValid && !sourceTimeRange.isEmpty else {
-                            print("SkipSlate: ExportService - Warning: Invalid timeRange for audio: start=\(CMTimeGetSeconds(sourceTimeRange.start)), duration=\(CMTimeGetSeconds(sourceTimeRange.duration))")
-                            continue
-                        }
-                        
-                        try audioTrack.insertTimeRange(
-                            sourceTimeRange,
-                            of: sourceAudioTrack,
-                            at: segmentStartTime
-                        )
-                        print("SkipSlate: Export - Inserted audio from '\(clip.fileName)' at \(CMTimeGetSeconds(segmentStartTime))s")
-                    } else {
-                        print("SkipSlate: Export - ⚠ Clip marked as hasAudioTrack=true but no audio tracks found: \(clip.fileName)")
+            // Insert audio if available - always try to load audio tracks from the asset
+            // Don't rely solely on hasAudioTrack property as it may be incorrect
+            print("SkipSlate: ExportService - Attempting to load audio for clip '\(clip.fileName)'...")
+            do {
+                let sourceAudioTracks = try await asset.loadTracks(withMediaType: .audio)
+                print("SkipSlate: ExportService - Found \(sourceAudioTracks.count) audio track(s) in '\(clip.fileName)'")
+                
+                if let sourceAudioTrack = sourceAudioTracks.first {
+                    // Safety check: Clamp sourceStart to valid range and validate timeRange
+                    let clampedStart = max(0.0, min(segment.sourceStart, clip.duration - 0.1))
+                    let maxDuration = clip.duration - clampedStart
+                    let clampedDuration = min(segmentDuration, CMTime(seconds: maxDuration, preferredTimescale: timescale))
+                    
+                    guard clampedDuration > .zero else {
+                        print("SkipSlate: ExportService - ⚠ Warning: Invalid clamped duration for audio segment (\(clampedDuration)s)")
+                        continue
                     }
-                } catch {
-                    print("SkipSlate: Export - ✗ Error inserting audio from '\(clip.fileName)': \(error.localizedDescription)")
+                    
+                    let sourceTimeRange = CMTimeRange(
+                        start: CMTime(seconds: clampedStart, preferredTimescale: timescale),
+                        duration: clampedDuration
+                    )
+                    
+                    // Safety check: Verify timeRange is valid
+                    guard sourceTimeRange.isValid && !sourceTimeRange.isEmpty else {
+                        print("SkipSlate: ExportService - ⚠ Warning: Invalid timeRange for audio: start=\(CMTimeGetSeconds(sourceTimeRange.start)), duration=\(CMTimeGetSeconds(sourceTimeRange.duration))")
+                        continue
+                    }
+                    
+                    print("SkipSlate: ExportService - Inserting audio: clip='\(clip.fileName)', timeRange=\(CMTimeGetSeconds(sourceTimeRange.start))s-\(CMTimeGetSeconds(CMTimeRangeGetEnd(sourceTimeRange)))s, at=\(CMTimeGetSeconds(segmentStartTime))s")
+                    
+                    try audioTrack.insertTimeRange(
+                        sourceTimeRange,
+                        of: sourceAudioTrack,
+                        at: segmentStartTime
+                    )
+                    print("SkipSlate: ExportService - ✓✓✓ SUCCESS - Inserted audio from '\(clip.fileName)' at \(CMTimeGetSeconds(segmentStartTime))s (duration: \(CMTimeGetSeconds(clampedDuration))s)")
+                } else {
+                    // No audio tracks found in asset
+                    print("SkipSlate: ExportService - ⚠ No audio tracks found in asset '\(clip.fileName)' (hasAudioTrack=\(clip.hasAudioTrack))")
                 }
-            } else {
-                print("SkipSlate: Export - Clip '\(clip.fileName)' has no audio track (hasAudioTrack=false)")
+            } catch {
+                print("SkipSlate: ExportService - ✗✗✗ ERROR loading/inserting audio from '\(clip.fileName)': \(error)")
+                print("SkipSlate: ExportService - Error details: \(error.localizedDescription)")
+                // Continue processing other segments even if one fails
             }
             
             // Update currentTime to end of this segment
             currentTime = CMTimeAdd(segmentStartTime, segmentDuration)
         }
         
+        // Log summary before verification
+        print("SkipSlate: ExportService - ===== SEGMENT PROCESSING COMPLETE =====")
+        print("SkipSlate: ExportService - Processed \(sortedSegments.count) segments")
+        print("SkipSlate: ExportService - Video track has content: \(hasRealVideo)")
+        let audioTracksBeforeVerification = composition.tracks(withMediaType: .audio)
+        print("SkipSlate: ExportService - Audio tracks before verification: \(audioTracksBeforeVerification.count)")
+        for (idx, track) in audioTracksBeforeVerification.enumerated() {
+            let segs = track.segments ?? []
+            print("SkipSlate: ExportService -   Track \(idx): \(segs.count) segment(s)")
+        }
+        print("SkipSlate: ExportService - ======================================")
+        
         // CRITICAL: Verify audio is actually embedded in the export composition
+        // Remove empty/invalid audio tracks BEFORE returning to prevent export failures
         print("SkipSlate: ExportService - ===== AUDIO VERIFICATION ======")
         let finalAudioTracks = composition.tracks(withMediaType: .audio)
         print("SkipSlate: ExportService - Final composition has \(finalAudioTracks.count) audio track(s)")
         
-        // Check if any segments should have had audio (only check clip segments, skip gaps)
-        var segmentsWithAudio = 0
-        var clipsWithAudio: [String] = []
-        for segment in enabledSegments {
-            guard let clipID = segment.clipID,
-                  let clip = project.clips.first(where: { $0.id == clipID }) else {
-                continue
-            }
-                if clip.hasAudioTrack {
-                    segmentsWithAudio += 1
-                    clipsWithAudio.append("\(clip.fileName) (hasAudioTrack=true)")
-            }
-        }
-        
+        // Check if audio tracks have valid content and remove empty/invalid ones
         var hasValidAudio = false
         var totalAudioDuration: Double = 0
+        var audioSegmentsCount = 0
+        var tracksToRemove: [AVMutableCompositionTrack] = []
         
-        if finalAudioTracks.isEmpty {
-            print("SkipSlate: ExportService - ⚠⚠⚠ CRITICAL ERROR - Composition has NO audio tracks!")
-            print("SkipSlate: ExportService - Segments that should have audio: \(segmentsWithAudio)")
-            print("SkipSlate: ExportService - Clips that should have audio: \(clipsWithAudio)")
-            
-            if segmentsWithAudio > 0 {
-                print("SkipSlate: ExportService - ⚠⚠⚠ ERROR - Expected \(segmentsWithAudio) segments with audio, but composition has 0 audio tracks!")
-                // THROW ERROR - export should not proceed if audio is missing when expected
-                throw NSError(
-                    domain: "ExportService",
-                    code: -200,
-                    userInfo: [
-                        NSLocalizedDescriptionKey: "Export composition has no audio tracks but \(segmentsWithAudio) segments should have audio. Audio insertion failed.",
-                        "segmentsWithAudio": segmentsWithAudio,
-                        "clipsWithAudio": clipsWithAudio
-                    ]
-                )
-            } else {
-                print("SkipSlate: ExportService - ✓ No audio expected - export will be silent (this is OK)")
-            }
-        } else {
-            // Verify each audio track has content
+        if !finalAudioTracks.isEmpty {
             for (index, track) in finalAudioTracks.enumerated() {
+                guard let mutableTrack = track as? AVMutableCompositionTrack else { continue }
+                
+                // Count segments in the track - this is the most reliable indicator
+                let segments = track.segments ?? []
+                audioSegmentsCount += segments.count
+                
                 let trackDuration = CMTimeGetSeconds(track.timeRange.duration)
                 let trackEnd = CMTimeGetSeconds(CMTimeRangeGetEnd(track.timeRange))
                 totalAudioDuration = max(totalAudioDuration, trackEnd)
                 
-                print("SkipSlate: ExportService - Audio track \(index): duration=\(trackDuration)s")
+                print("SkipSlate: ExportService - Audio track \(index) analysis:")
+                print("SkipSlate:   - Segments count: \(segments.count)")
+                print("SkipSlate:   - Track duration: \(trackDuration)s")
+                print("SkipSlate:   - Track end: \(trackEnd)s")
                 
-                if trackDuration > 0 {
-                    hasValidAudio = true
+                // Check if track has segments - if it has segments, it has content
+                if segments.isEmpty {
+                    print("SkipSlate: ExportService - ⚠ Track \(index) has NO segments - REMOVING (will cause export failure)")
+                    tracksToRemove.append(mutableTrack)
                 } else {
-                    print("SkipSlate: ExportService - ⚠ WARNING: Track \(index) has zero duration!")
+                    // Track has segments - validate track duration is valid
+                    // If track has segments and valid duration, it's valid
+                    if !trackDuration.isNaN && trackDuration > 0 {
+                        print("SkipSlate: ExportService - ✓✓✓ Track \(index) is VALID - has \(segments.count) segment(s) with duration \(trackDuration)s")
+                        hasValidAudio = true
+                    } else {
+                        print("SkipSlate: ExportService - ⚠ Track \(index) has \(segments.count) segment(s) but invalid track duration (\(trackDuration)s) - REMOVING")
+                        tracksToRemove.append(mutableTrack)
+                    }
                 }
             }
             
-            if segmentsWithAudio > 0 && !hasValidAudio {
-                print("SkipSlate: ExportService - ⚠⚠⚠ CRITICAL ERROR - Expected audio but all tracks have zero duration!")
-                throw NSError(
-                    domain: "ExportService",
-                    code: -201,
-                    userInfo: [
-                        NSLocalizedDescriptionKey: "Export composition has \(finalAudioTracks.count) audio track(s) but all have zero duration. Audio insertion failed.",
-                        "audioTrackCount": finalAudioTracks.count,
-                        "segmentsWithAudio": segmentsWithAudio
-                    ]
-                )
-            } else if hasValidAudio {
-                print("SkipSlate: ExportService - ✓✓✓ SUCCESS - Audio IS embedded in export composition!")
-                print("SkipSlate: ExportService - Total audio duration: \(totalAudioDuration)s")
+            // CRITICAL: Remove empty or invalid audio tracks to prevent export failures
+            // Empty tracks cause "Operation Stopped" errors (-11838) during export
+            if !tracksToRemove.isEmpty {
+                print("SkipSlate: ExportService - Removing \(tracksToRemove.count) invalid audio track(s)...")
+                for track in tracksToRemove {
+                    composition.removeTrack(track)
+                    print("SkipSlate: ExportService - ✓ Removed empty/invalid audio track from composition")
+                }
+                
+                // Verify removal worked
+                let remainingAudioTracks = composition.tracks(withMediaType: .audio)
+                print("SkipSlate: ExportService - After cleanup: \(remainingAudioTracks.count) audio track(s) remaining (removed \(tracksToRemove.count))")
+                
+                // Double-check: if all tracks were removed, composition should have 0 audio tracks
+                if remainingAudioTracks.isEmpty && !hasValidAudio {
+                    print("SkipSlate: ExportService - ✓ All invalid audio tracks removed - composition is now video-only")
+                }
             }
+            
+            if hasValidAudio {
+                print("SkipSlate: ExportService - ✓✓✓ SUCCESS - Audio IS embedded in export composition!")
+                print("SkipSlate: ExportService - Total audio duration: \(totalAudioDuration)s, total segments: \(audioSegmentsCount)")
+            } else {
+                // All tracks were empty - removed them, export will be video-only
+                print("SkipSlate: ExportService - ✓ All audio tracks were empty - removed them (export will be video-only)")
+            }
+        } else {
+            print("SkipSlate: ExportService - ⚠⚠⚠ WARNING - No audio tracks in composition (audio track creation may have failed)")
         }
         print("SkipSlate: ExportService - ================================")
         
@@ -973,34 +1064,38 @@ class ColorCorrectionCompositor: NSObject, AVVideoCompositing {
             return
         }
         
-        // Get the first layer instruction (for now, we only support single-layer)
-        guard let layerInstruction = instruction.layerInstructions.first as? AVMutableVideoCompositionLayerInstruction else {
+        // Get layer instructions - support multiple layers for highlight reel video stacking
+        guard !instruction.layerInstructions.isEmpty else {
+            // No layer instructions - render black frame
+            renderBlackFrame(request: asyncVideoCompositionRequest)
+            return
+        }
+        
+        // Get the main layer instruction (first layer)
+        guard let mainLayerInstruction = instruction.layerInstructions.first as? AVMutableVideoCompositionLayerInstruction else {
             // No layer instruction - render black frame
             renderBlackFrame(request: asyncVideoCompositionRequest)
             return
         }
         
-        // Try to get source frame - try all available track IDs if the first one fails
-        var sourcePixelBuffer: CVPixelBuffer?
-        
-        // First try the trackID from the layer instruction
-        sourcePixelBuffer = asyncVideoCompositionRequest.sourceFrame(byTrackID: layerInstruction.trackID)
+        // Try to get source frame from main track
+        var mainPixelBuffer: CVPixelBuffer?
+        mainPixelBuffer = asyncVideoCompositionRequest.sourceFrame(byTrackID: mainLayerInstruction.trackID)
         
         // If that fails, try all available source frames
-        if sourcePixelBuffer == nil {
-            // Try to get source frame from any available track
+        if mainPixelBuffer == nil {
             for trackIDNumber in asyncVideoCompositionRequest.sourceTrackIDs {
                 let trackID = trackIDNumber.int32Value
                 if let frame = asyncVideoCompositionRequest.sourceFrame(byTrackID: trackID) {
-                    sourcePixelBuffer = frame
+                    mainPixelBuffer = frame
                     print("SkipSlate: ColorCorrectionCompositor - Found source frame using alternative trackID \(trackID) at time \(CMTimeGetSeconds(renderTime))s")
                     break
                 }
             }
         }
         
-        guard let pixelBuffer = sourcePixelBuffer else {
-            print("SkipSlate: ColorCorrectionCompositor - No source frame available for trackID \(layerInstruction.trackID) at time \(CMTimeGetSeconds(renderTime))s")
+        guard let mainPixelBuffer = mainPixelBuffer else {
+            print("SkipSlate: ColorCorrectionCompositor - No source frame available for trackID \(mainLayerInstruction.trackID) at time \(CMTimeGetSeconds(renderTime))s")
             print("SkipSlate: Available track IDs: \(asyncVideoCompositionRequest.sourceTrackIDs)")
             print("SkipSlate: Instruction time range: \(CMTimeGetSeconds(instruction.timeRange.start))s - \(CMTimeGetSeconds(CMTimeRangeGetEnd(instruction.timeRange)))s")
             // No source frame - render black frame
@@ -1008,16 +1103,26 @@ class ColorCorrectionCompositor: NSObject, AVVideoCompositing {
             return
         }
         
-        // Use the found pixel buffer
-        let finalSourcePixelBuffer = pixelBuffer
+        // CRITICAL: For highlight reels, check for overlay layer (second layer) to fill black space
+        var overlayPixelBuffer: CVPixelBuffer?
+        if instruction.layerInstructions.count > 1,
+           let overlayLayerInstruction = instruction.layerInstructions[1] as? AVMutableVideoCompositionLayerInstruction {
+            overlayPixelBuffer = asyncVideoCompositionRequest.sourceFrame(byTrackID: overlayLayerInstruction.trackID)
+            if overlayPixelBuffer != nil {
+                print("SkipSlate: ColorCorrectionCompositor - Found overlay frame for highlight reel stacking at time \(CMTimeGetSeconds(renderTime))s")
+            }
+        }
         
-        // Get opacity from layer instruction
+        // Use the main pixel buffer
+        let finalSourcePixelBuffer = mainPixelBuffer
+        
+        // Get opacity from main layer instruction
         var startOpacity: Float = 1.0
         var endOpacity: Float = 1.0
         var opacityTimeRange: CMTimeRange = CMTimeRange()
         var opacity: Float = 1.0
         
-        if layerInstruction.getOpacityRamp(for: renderTime, startOpacity: &startOpacity, endOpacity: &endOpacity, timeRange: &opacityTimeRange) {
+        if mainLayerInstruction.getOpacityRamp(for: renderTime, startOpacity: &startOpacity, endOpacity: &endOpacity, timeRange: &opacityTimeRange) {
             // Interpolate opacity based on position in time range
             if opacityTimeRange.duration.seconds > 0 {
                 let progress = (renderTime.seconds - opacityTimeRange.start.seconds) / opacityTimeRange.duration.seconds
@@ -1133,7 +1238,100 @@ class ColorCorrectionCompositor: NSObject, AVVideoCompositing {
             return
         }
         
-        context.render(filteredImage, to: outputPixelBuffer)
+        // ========================================================================
+        // CRITICAL HIGHLIGHT REEL RULE: FRAME MUST BE FILLED AT ALL TIMES
+        // ========================================================================
+        // For highlight reels, videos MUST fill the entire frame with NO black bars.
+        // This is achieved by:
+        // 1. Using max(scaleX, scaleY) to zoom/crop the video to fill the frame
+        // 2. If stacking is used (overlay track), the overlay fills remaining black space
+        // The frame MUST NEVER have black bars - it must be completely filled.
+        // ========================================================================
+        // Scale and position the image to fill the render context
+        // This ensures videos match the selected framing (aspect ratio)
+        let renderSize = asyncVideoCompositionRequest.renderContext.size
+        let sourceSize = filteredImage.extent.size
+        
+        // Calculate scale to fill the render context (maintain aspect ratio, crop if needed)
+        // CRITICAL: Use max() to ensure frame is FILLED (zoom/crop) rather than fit (letterbox)
+        // This guarantees NO black bars for highlight reels
+        let scaleX = renderSize.width / sourceSize.width
+        let scaleY = renderSize.height / sourceSize.height
+        let scale = max(scaleX, scaleY) // Use max to fill (crop/zoom) rather than fit (letterbox)
+        
+        // Calculate scaled size
+        let scaledWidth = sourceSize.width * scale
+        let scaledHeight = sourceSize.height * scale
+        
+        // Center the scaled image
+        let offsetX = (scaledWidth - renderSize.width) / 2.0
+        let offsetY = (scaledHeight - renderSize.height) / 2.0
+        
+        // Create transform to scale and center
+        let transform = CGAffineTransform(scaleX: scale, y: scale)
+            .translatedBy(x: -offsetX / scale, y: -offsetY / scale)
+        
+        // Apply transform and crop to render size
+        var transformedImage = filteredImage.transformed(by: transform)
+            .cropped(to: CGRect(origin: .zero, size: renderSize))
+        
+        // ========================================================================
+        // CRITICAL HIGHLIGHT REEL RULE: COMPOSITE OVERLAY TO FILL BLACK SPACE
+        // ========================================================================
+        // If an overlay video exists (from video stacking), composite it to fill any remaining
+        // black space. This ensures the frame is COMPLETELY FILLED with video content.
+        // The main video is already zoomed to fill (above), and the overlay fills the gaps.
+        // ========================================================================
+        if let overlayBuffer = overlayPixelBuffer {
+            let overlayImage = CIImage(cvPixelBuffer: overlayBuffer)
+            let overlaySize = overlayImage.extent.size
+            
+            // Calculate how to position overlay to fill black space
+            // If main video is letterboxed (narrow), overlay fills top/bottom
+            // If main video is pillarboxed (wide), overlay fills left/right
+            let mainAspect = sourceSize.width / sourceSize.height
+            let renderAspect = renderSize.width / renderSize.height
+            let hasLetterboxing = mainAspect < renderAspect // Black bars top/bottom
+            let hasPillarboxing = mainAspect > renderAspect // Black bars left/right
+            
+            var overlayTransform = CGAffineTransform.identity
+            
+            if hasLetterboxing {
+                // Main video is narrow - overlay fills top and bottom
+                // Scale overlay to fill the black bars
+                let overlayScale = renderSize.width / overlaySize.width
+                let overlayScaledHeight = overlaySize.height * overlayScale
+                let blackBarHeight = (renderSize.height - scaledHeight) / 2.0
+                
+                // Position overlay to fill top black bar
+                overlayTransform = CGAffineTransform(scaleX: overlayScale, y: overlayScale)
+                    .translatedBy(x: 0, y: (overlayScaledHeight - renderSize.height) / 2.0 - blackBarHeight)
+            } else if hasPillarboxing {
+                // Main video is wide - overlay fills left and right
+                // Scale overlay to fill the black bars
+                let overlayScale = renderSize.height / overlaySize.height
+                let overlayScaledWidth = overlaySize.width * overlayScale
+                let blackBarWidth = (renderSize.width - scaledWidth) / 2.0
+                
+                // Position overlay to fill left black bar
+                overlayTransform = CGAffineTransform(scaleX: overlayScale, y: overlayScale)
+                    .translatedBy(x: (overlayScaledWidth - renderSize.width) / 2.0 - blackBarWidth, y: 0)
+            }
+            
+            let transformedOverlay = overlayImage.transformed(by: overlayTransform)
+                .cropped(to: CGRect(origin: .zero, size: renderSize))
+            
+            // Composite overlay over main video (overlay fills black space)
+            if let compositeFilter = CIFilter(name: "CISourceOverCompositing") {
+                compositeFilter.setValue(transformedImage, forKey: kCIInputBackgroundImageKey)
+                compositeFilter.setValue(transformedOverlay, forKey: kCIInputImageKey)
+                if let compositeOutput = compositeFilter.outputImage {
+                    transformedImage = compositeOutput.cropped(to: CGRect(origin: .zero, size: renderSize))
+                }
+            }
+        }
+        
+        context.render(transformedImage, to: outputPixelBuffer)
         asyncVideoCompositionRequest.finish(withComposedVideoFrame: outputPixelBuffer)
     }
     
@@ -1255,7 +1453,43 @@ class ImageAwareCompositor: NSObject, AVVideoCompositing {
             return
         }
         
-        context.render(filteredImage, to: outputPixelBuffer)
+        // ========================================================================
+        // CRITICAL HIGHLIGHT REEL RULE: FRAME MUST BE FILLED AT ALL TIMES
+        // ========================================================================
+        // For highlight reels, videos MUST fill the entire frame with NO black bars.
+        // This is achieved by using max(scaleX, scaleY) to zoom/crop the video to fill the frame.
+        // If video stacking is used, the overlay track fills remaining black space.
+        // The frame MUST NEVER have black bars - it must be completely filled.
+        // ========================================================================
+        // Scale and position the video to fill the render context
+        // This ensures videos match the selected framing (aspect ratio)
+        let renderSize = asyncVideoCompositionRequest.renderContext.size
+        let sourceSize = filteredImage.extent.size
+        
+        // Calculate scale to fill the render context (maintain aspect ratio, crop if needed)
+        // CRITICAL: Use max() to ensure frame is FILLED (zoom/crop) rather than fit (letterbox)
+        // This guarantees NO black bars for highlight reels
+        let scaleX = renderSize.width / sourceSize.width
+        let scaleY = renderSize.height / sourceSize.height
+        let scale = max(scaleX, scaleY) // Use max to fill (crop/zoom) rather than fit (letterbox)
+        
+        // Calculate scaled size
+        let scaledWidth = sourceSize.width * scale
+        let scaledHeight = sourceSize.height * scale
+        
+        // Center the scaled image
+        let offsetX = (scaledWidth - renderSize.width) / 2.0
+        let offsetY = (scaledHeight - renderSize.height) / 2.0
+        
+        // Create transform to scale and center
+        let transform = CGAffineTransform(scaleX: scale, y: scale)
+            .translatedBy(x: -offsetX / scale, y: -offsetY / scale)
+        
+        // Apply transform and crop to render size
+        let transformedImage = filteredImage.transformed(by: transform)
+            .cropped(to: CGRect(origin: .zero, size: renderSize))
+        
+        context.render(transformedImage, to: outputPixelBuffer)
         asyncVideoCompositionRequest.finish(withComposedVideoFrame: outputPixelBuffer)
     }
     
@@ -1362,4 +1596,5 @@ class ImageAwareCompositor: NSObject, AVVideoCompositing {
         // No-op for v1
     }
 }
+
 

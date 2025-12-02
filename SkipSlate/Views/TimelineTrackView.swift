@@ -26,12 +26,21 @@ struct TimelineTrackView: View {
     
     var body: some View {
         HStack(spacing: 0) {
-            // Track label
-            Text(track.name)
-                .font(.caption)
-                .foregroundColor(AppColors.secondaryText)
-                .frame(width: 40, alignment: .center)
-                .background(AppColors.panelBackground)
+            // Track header (DaVinci-style)
+            TrackHeaderView(
+                track: track,
+                isActive: false, // TODO: Determine if track is active based on selection
+                height: trackHeight,
+                onMuteToggle: {
+                    // TODO: Implement mute toggle
+                },
+                onLockToggle: {
+                    // TODO: Implement lock toggle
+                },
+                onVisibilityToggle: {
+                    // TODO: Implement visibility toggle
+                }
+            )
             
             // Track content area
             ZStack(alignment: .leading) {
@@ -461,11 +470,12 @@ struct TimelineSegmentView: View {
                     }
                 )
                 .overlay(
-                    // SELECTED indicator (white border when selected - this is what matters!)
+                    // SELECTED indicator (teal border when selected - DaVinci-style)
                     Group {
                         if isSelected {
                             RoundedRectangle(cornerRadius: 4)
-                                .stroke(Color.white, lineWidth: 2)
+                                .stroke(AppColors.tealAccent, lineWidth: 2.5)
+                                .shadow(color: AppColors.tealAccent.opacity(0.5), radius: 2, x: 0, y: 0)
                         }
                     }
                 )
@@ -512,6 +522,7 @@ struct TimelineSegmentView: View {
                             switch tool {
                             case .cursor, .segmentSelector:
                                 // Selection behavior - same for both cursor and segmentSelector
+                                // When segmentSelector tool is active, handle selection
                                 let isCommandKey = NSEvent.modifierFlags.contains(.command)
                                 onSelect(isCommandKey)
                                 print("SkipSlate: ✅ Selection complete - selectedSegmentIDs count: \(projectViewModel.selectedSegmentIDs.count)")
@@ -825,6 +836,25 @@ struct TimelineSegmentView: View {
             
             Divider()
             
+            // Scale to Fill Frame
+            if segment.kind == .clip {
+                Button(segment.transform.scaleToFillFrame ? "Remove Scale to Fill Frame" : "Scale to Fill Frame") {
+                    // Select segment first if not already selected
+                    if !projectViewModel.selectedSegmentIDs.contains(segment.id) {
+                        projectViewModel.selectedSegmentIDs = [segment.id]
+                        projectViewModel.selectedSegment = segment
+                    }
+                    
+                    if segment.transform.scaleToFillFrame {
+                        projectViewModel.removeScaleToFillFrame()
+                    } else {
+                        projectViewModel.scaleSelectedSegmentsToFillFrame()
+                    }
+                }
+            }
+            
+            Divider()
+            
             Button("Go to Segment Start") {
                 projectViewModel.seekToSegment(segment)
             }
@@ -836,4 +866,3 @@ struct TimelineSegmentView: View {
         }
     }
 }
-

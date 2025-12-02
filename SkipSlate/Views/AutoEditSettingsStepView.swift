@@ -130,6 +130,7 @@ struct AutoEditSettingsStepView: View {
                     .padding(.bottom, 40)
                 }
             }
+            .scrollIndicators(.hidden)
             .background(AutoEditTheme.bg)
             
             Divider()
@@ -184,16 +185,16 @@ struct AutoEditSettingsStepView: View {
             }
             .padding(30)
             .background(AutoEditTheme.panel)
-            }
-            .background(AutoEditTheme.bg)
-            .onAppear {
-                if style == nil {
-                    style = defaultStyle
-                }
-                // Initialize quality threshold from current settings
-                qualityThreshold = projectViewModel.autoEditSettings.qualityThreshold
-            }
         }
+        .background(AutoEditTheme.bg)
+        .onAppear {
+            if style == nil {
+                style = defaultStyle
+            }
+            // Initialize quality threshold from current settings
+            qualityThreshold = projectViewModel.autoEditSettings.qualityThreshold
+        }
+    }
     
     private var targetLengthSection: some View {
         VStack(alignment: .leading, spacing: 16) {

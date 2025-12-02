@@ -603,6 +603,55 @@ class PlayerViewModel: NSObject, ObservableObject {
         return videoComposition
     }
     
+    /// Get the video composition used for preview (same one that MUST be used for export)
+    /// ========================================================================
+    /// CRITICAL: This method creates the video composition for PREVIEW.
+    /// ExportService MUST use this exact same method to ensure export matches preview
+    /// EXACTLY - same scaling, same framing, same frame-filling logic, same everything.
+    /// 
+    /// For highlight reels, the frame-filling logic (zoom/stack) is applied in the
+    /// custom compositors (ColorCorrectionCompositor/ImageAwareCompositor), which are
+    /// part of this video composition. This ensures preview and export are identical.
+    /// ========================================================================
+    func videoComposition(for colorSettings: ColorSettings, resolution: ResolutionPreset, aspectRatio: AspectRatio) -> AVMutableVideoComposition? {
+        guard let composition = composition else {
+            print("SkipSlate: PlayerViewModel - Cannot create video composition: composition is nil")
+            return nil
+        }
+        
+        guard let project = currentProject else {
+            print("SkipSlate: PlayerViewModel - Cannot create video composition: project is nil")
+            return nil
+        }
+        
+        // CRITICAL: Use TransitionService with the SAME parameters as preview
+        // This ensures export uses the EXACT same video composition as preview
+        // The custom compositors (ColorCorrectionCompositor/ImageAwareCompositor) handle
+        // frame-filling for highlight reels using max(scaleX, scaleY) to zoom/crop videos
+        // to fill the frame completely (no black bars).
+        let enabledSegments = project.segments.filter { $0.enabled }
+        if let videoComposition = TransitionService.shared.createVideoCompositionWithTransitions(
+            for: composition,
+            segments: enabledSegments,
+            project: project,
+            resolution: resolution,
+            aspectRatio: aspectRatio
+        ) {
+            // Apply color settings to the compositor (same as preview)
+            globalColorSettings = colorSettings
+            print("SkipSlate: PlayerViewModel - Created video composition for PREVIEW (renderSize: \(videoComposition.renderSize))")
+            print("SkipSlate: PlayerViewModel - ⚠️ CRITICAL: ExportService MUST use this exact same video composition to match preview")
+            if project.type == .highlightReel {
+                print("SkipSlate: PlayerViewModel - 🎬 Highlight Reel: Frame-filling logic is in compositor (zoom/stack to fill frame)")
+            }
+            return videoComposition
+        }
+        
+        // Fallback to standard composition if TransitionService fails
+        print("SkipSlate: PlayerViewModel - TransitionService failed, using fallback video composition")
+        return createVideoComposition(for: composition, settings: colorSettings)
+    }
+    
     func buildComposition(from project: Project) async throws -> AVMutableComposition {
         let composition = AVMutableComposition()
         
@@ -631,6 +680,16 @@ class PlayerViewModel: NSObject, ObservableObject {
                 throw NSError(domain: "PlayerViewModel", code: -1)
             }
             videoTracksByTrackID[track.id] = videoTrack
+        }
+        
+        // CRITICAL: For highlight reels, create an overlay track for stacking videos to fill black space
+        var overlayVideoTrack: AVMutableCompositionTrack?
+        if project.type == .highlightReel {
+            overlayVideoTrack = composition.addMutableTrack(
+                withMediaType: .video,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            )
+            print("SkipSlate: Created overlay video track for highlight reel video stacking")
         }
         
         // Create audio tracks for each audio track in the timeline (A1, A2, etc.)
@@ -776,6 +835,30 @@ class PlayerViewModel: NSObject, ObservableObject {
                 print("SkipSlate: Error creating dummy video asset: \(error)")
                 // Continue without dummy video - will fall back to other methods
             }
+        }
+        
+        // CRITICAL: For highlight reels, pre-calculate aspect ratios for all video clips
+        // This allows synchronous lookup when finding complementary videos
+        var clipAspectRatios: [UUID: CGFloat] = [:]
+        if project.type == .highlightReel {
+            print("SkipSlate: Highlight Reel - Pre-calculating video aspect ratios for stacking...")
+            for clip in project.clips where clip.type == .videoWithAudio || clip.type == .videoOnly {
+                let asset = AVURLAsset(url: clip.url)
+                do {
+                    let videoTracks = try await asset.loadTracks(withMediaType: .video)
+                    if let videoTrack = videoTracks.first {
+                        let naturalSize = videoTrack.naturalSize
+                        if naturalSize.width > 0 && naturalSize.height > 0 {
+                            let aspectRatio = naturalSize.width / naturalSize.height
+                            clipAspectRatios[clip.id] = aspectRatio
+                            print("SkipSlate: Clip '\(clip.fileName)' aspect ratio: \(String(format: "%.2f", aspectRatio))")
+                        }
+                    }
+                } catch {
+                    print("SkipSlate: Error loading aspect ratio for clip '\(clip.fileName)': \(error)")
+                }
+            }
+            print("SkipSlate: Highlight Reel - Pre-calculated \(clipAspectRatios.count) video aspect ratios")
         }
         
         // Process segments by iterating through tracks to maintain order
@@ -954,6 +1037,90 @@ class PlayerViewModel: NSObject, ObservableObject {
                             }
                             hasRealVideo = true
                             print("SkipSlate: ✅ Successfully inserted video segment into track \(track.name) from clip '\(clip.fileName)'")
+                            
+                            // ========================================================================
+                            // CRITICAL HIGHLIGHT REEL RULE: FRAME MUST BE FILLED AT ALL TIMES
+                            // ========================================================================
+                            // For highlight reels, videos that don't fill the frame have TWO options:
+                            // 1. STACK: Place a complementary video in the black space (preferred)
+                            // 2. ZOOM: Scale/zoom the video to fill the frame (fallback, handled by compositor)
+                            // The frame MUST NEVER have black bars - it must be completely filled.
+                            // ========================================================================
+                            if project.type == .highlightReel, let overlayTrack = overlayVideoTrack {
+                                // Calculate if this video will have black space when scaled to fill frame
+                                let videoAspectRatio = sourceVideoTrack.naturalSize.width / sourceVideoTrack.naturalSize.height
+                                let renderAspectRatio = Double(renderSize.width) / Double(renderSize.height)
+                                
+                                // Detect black space: if aspect ratios differ significantly, there will be black bars
+                                let aspectRatioDiff = abs(videoAspectRatio - CGFloat(renderAspectRatio))
+                                let hasBlackSpace = aspectRatioDiff > 0.1 // Significant difference means black space
+                                
+                                if hasBlackSpace {
+                                    print("SkipSlate: 🎬 Highlight Reel - Detected black space for clip '\(clip.fileName)' (video aspect: \(String(format: "%.2f", videoAspectRatio)), render aspect: \(String(format: "%.2f", renderAspectRatio)))")
+                                    print("SkipSlate: 🎬 Highlight Reel - Attempting to stack complementary video to fill black space...")
+                                    
+                                    // OPTION 1: Try to find a complementary video that can fill the black space
+                                    // Use sync version if aspect ratios are pre-calculated, otherwise use async
+                                    var complementaryClip: MediaClip?
+                                    if !clipAspectRatios.isEmpty {
+                                        complementaryClip = findComplementaryVideoSync(
+                                            for: clip,
+                                            in: project,
+                                            videoAspectRatio: videoAspectRatio,
+                                            renderAspectRatio: renderAspectRatio,
+                                            clipAspectRatios: clipAspectRatios
+                                        )
+                                    } else {
+                                        // Fallback to async lookup (will be handled in a continuation)
+                                        complementaryClip = await findComplementaryVideoAsync(
+                                            for: clip,
+                                            in: project,
+                                            videoAspectRatio: videoAspectRatio,
+                                            renderAspectRatio: renderAspectRatio
+                                        )
+                                    }
+                                    
+                                    if let complementary = complementaryClip {
+                                        print("SkipSlate: ✅ Highlight Reel - Found complementary video: '\(complementary.fileName)' to fill black space")
+                                        
+                                        // Insert complementary video into overlay track
+                                        do {
+                                            let complementaryAsset = AVURLAsset(url: complementary.url)
+                                            let complementaryVideoTracks = try await complementaryAsset.loadTracks(withMediaType: .video)
+                                            
+                                            if let complementarySourceTrack = complementaryVideoTracks.first {
+                                                // Clamp to available duration
+                                                let complementaryAssetDuration = try await complementaryAsset.load(.duration)
+                                                let clampedDuration = min(segmentDuration, complementaryAssetDuration)
+                                                let clampedTimeRange = CMTimeRange(
+                                                    start: .zero,
+                                                    duration: clampedDuration
+                                                )
+                                                
+                                                try overlayTrack.insertTimeRange(
+                                                    clampedTimeRange,
+                                                    of: complementarySourceTrack,
+                                                    at: compositionStart
+                                                )
+                                                
+                                                print("SkipSlate: ✅ Highlight Reel - Stacked complementary video '\(complementary.fileName)' in overlay track at \(CMTimeGetSeconds(compositionStart))s")
+                                                print("SkipSlate: ✅ Highlight Reel - Frame will be filled via video stacking")
+                                            }
+                                        } catch {
+                                            print("SkipSlate: ⚠️ Error stacking complementary video: \(error)")
+                                            print("SkipSlate: 🎬 Highlight Reel - Falling back to zoom-to-fill (handled by compositor)")
+                                        }
+                                    } else {
+                                        print("SkipSlate: 🎬 Highlight Reel - No complementary video found to fill black space")
+                                        print("SkipSlate: 🎬 Highlight Reel - Video will be zoomed/scaled to fill frame (handled by compositor)")
+                                        // NOTE: The compositor (ColorCorrectionCompositor/ImageAwareCompositor) will automatically
+                                        // zoom the video to fill the frame using max(scaleX, scaleY) - this ensures NO black bars.
+                                    }
+                                } else {
+                                    // Video already fills frame - no action needed
+                                    print("SkipSlate: ✅ Highlight Reel - Video '\(clip.fileName)' already fills frame (aspect match)")
+                                }
+                            }
                         } else {
                             print("SkipSlate: ⚠️ No video track found in clip '\(clip.fileName)' - skipping video insertion")
                         }
@@ -1799,6 +1966,91 @@ class PlayerViewModel: NSObject, ObservableObject {
         NotificationCenter.default.removeObserver(self)
         
         print("SkipSlate: PlayerViewModel deinit")
+    }
+    
+    // MARK: - Highlight Reel Video Stacking
+    
+    /// Find a complementary video that can fill black space when the main video is scaled (async version)
+    private func findComplementaryVideoAsync(
+        for mainClip: MediaClip,
+        in project: Project,
+        videoAspectRatio: CGFloat,
+        renderAspectRatio: Double
+    ) async -> MediaClip? {
+        // Get all video clips except the main one
+        let otherVideoClips = project.clips.filter { clip in
+            (clip.type == .videoWithAudio || clip.type == .videoOnly) && clip.id != mainClip.id
+        }
+        
+        guard !otherVideoClips.isEmpty else {
+            return nil
+        }
+        
+        // Determine what kind of black space we have
+        let hasLetterboxing = videoAspectRatio < CGFloat(renderAspectRatio) // Video is narrower, black bars top/bottom
+        let hasPillarboxing = videoAspectRatio > CGFloat(renderAspectRatio) // Video is wider, black bars left/right
+        
+        // Find a complementary video with opposite aspect ratio
+        for clip in otherVideoClips {
+            do {
+                let asset = AVURLAsset(url: clip.url)
+                let videoTracks = try await asset.loadTracks(withMediaType: .video)
+                if let videoTrack = videoTracks.first {
+                    let clipAspectRatio = videoTrack.naturalSize.width / videoTrack.naturalSize.height
+                    
+                    // Check if this clip can fill the black space
+                    if hasLetterboxing && clipAspectRatio > CGFloat(renderAspectRatio) {
+                        // Main video is narrow, this clip is wide - can fill top/bottom
+                        return clip
+                    } else if hasPillarboxing && clipAspectRatio < CGFloat(renderAspectRatio) {
+                        // Main video is wide, this clip is narrow - can fill left/right
+                        return clip
+                    }
+                }
+            } catch {
+                // Skip this clip if we can't load it
+                continue
+            }
+        }
+        
+        // Fallback: return first available video clip if no perfect match found
+        return otherVideoClips.first
+    }
+    
+    /// Synchronous version that uses cached natural size if available
+    private func findComplementaryVideoSync(
+        for mainClip: MediaClip,
+        in project: Project,
+        videoAspectRatio: CGFloat,
+        renderAspectRatio: Double,
+        clipAspectRatios: [UUID: CGFloat]
+    ) -> MediaClip? {
+        // Get all video clips except the main one
+        let otherVideoClips = project.clips.filter { clip in
+            (clip.type == .videoWithAudio || clip.type == .videoOnly) && clip.id != mainClip.id
+        }
+        
+        guard !otherVideoClips.isEmpty else {
+            return nil
+        }
+        
+        // Determine what kind of black space we have
+        let hasLetterboxing = videoAspectRatio < CGFloat(renderAspectRatio)
+        let hasPillarboxing = videoAspectRatio > CGFloat(renderAspectRatio)
+        
+        // Find complementary video using cached aspect ratios
+        for clip in otherVideoClips {
+            if let clipAspectRatio = clipAspectRatios[clip.id] {
+                if hasLetterboxing && clipAspectRatio > CGFloat(renderAspectRatio) {
+                    return clip
+                } else if hasPillarboxing && clipAspectRatio < CGFloat(renderAspectRatio) {
+                    return clip
+                }
+            }
+        }
+        
+        // Fallback: return first available video
+        return otherVideoClips.first
     }
 }
 

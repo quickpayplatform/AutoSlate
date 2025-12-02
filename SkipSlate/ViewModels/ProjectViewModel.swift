@@ -414,6 +414,16 @@ class ProjectViewModel: ObservableObject {
         set { project.tracks = newValue }
     }
     
+    /// Get all video tracks
+    var videoTracks: [TimelineTrack] {
+        project.tracks.filter { $0.kind == .video }.sorted { $0.index < $1.index }
+    }
+    
+    /// Get all audio tracks
+    var audioTracks: [TimelineTrack] {
+        project.tracks.filter { $0.kind == .audio }.sorted { $0.index < $1.index }
+    }
+    
     // MARK: - Timeline Track Management
     
     /// Get segments for a specific track
@@ -469,6 +479,87 @@ class ProjectViewModel: ObservableObject {
         segments.insert(movedSegmentID, at: adjustedDestination)
         
         project.tracks[trackIndex].segments = segments
+        immediateRebuild()
+    }
+    
+    /// Add a new video or audio track
+    func addTrack(kind: TrackKind) {
+        // Get existing tracks of the same kind to determine next index
+        let existingTracks = project.tracks.filter { $0.kind == kind }
+        let nextIndex = existingTracks.count
+        
+        // Create new track
+        let newTrack = TimelineTrack(
+            kind: kind,
+            index: nextIndex,
+            segments: []
+        )
+        
+        project.tracks.append(newTrack)
+        
+        // Update indices of all tracks of the same kind to ensure they're consecutive
+        updateTrackIndices(for: kind)
+        
+        hasUserModifiedAutoEdit = true
+        objectWillChange.send()
+        
+        print("SkipSlate: ✅ Added new \(kind == .video ? "video" : "audio") track at index \(nextIndex)")
+    }
+    
+    /// Update track indices to ensure they're consecutive (0, 1, 2, ...)
+    private func updateTrackIndices(for kind: TrackKind) {
+        let tracksOfKind = project.tracks.filter { $0.kind == kind }.sorted { $0.index < $1.index }
+        for (newIndex, track) in tracksOfKind.enumerated() {
+            if let trackIndex = project.tracks.firstIndex(where: { $0.id == track.id }) {
+                project.tracks[trackIndex].index = newIndex
+            }
+        }
+    }
+    
+    // MARK: - Transform Effects
+    
+    /// Scale selected segments to fill the project frame (no black bars)
+    func scaleSelectedSegmentsToFillFrame() {
+        let selectedIDs = selectedSegmentIDs.isEmpty && selectedSegment != nil
+            ? [selectedSegment!.id]
+            : selectedSegmentIDs
+        
+        guard !selectedIDs.isEmpty else {
+            print("SkipSlate: ⚠️ No segments selected for Scale to Fill Frame")
+            return
+        }
+        
+        var updatedCount = 0
+        
+        // Update all selected segments
+        for (index, segment) in project.segments.enumerated() {
+            if selectedIDs.contains(segment.id) && segment.kind == .clip {
+                project.segments[index].transform.scaleToFillFrame = true
+                updatedCount += 1
+            }
+        }
+        
+        hasUserModifiedAutoEdit = true
+        immediateRebuild()
+        
+        print("SkipSlate: ✅ Applied Scale to Fill Frame to \(updatedCount) segment(s)")
+    }
+    
+    /// Remove Scale to Fill Frame from selected segments
+    func removeScaleToFillFrame() {
+        let selectedIDs = selectedSegmentIDs.isEmpty && selectedSegment != nil
+            ? [selectedSegment!.id]
+            : selectedSegmentIDs
+        
+        guard !selectedIDs.isEmpty else { return }
+        
+        for (index, segment) in project.segments.enumerated() {
+            if selectedIDs.contains(segment.id) {
+                project.segments[index].transform.scaleToFillFrame = false
+            }
+        }
+        
+        hasUserModifiedAutoEdit = true
         immediateRebuild()
     }
     

@@ -76,6 +76,7 @@ struct InspectorPanel: View {
                 }
                 .padding(16)
             }
+            .scrollIndicators(.hidden)
             .background(AppColors.panelBackground)
         }
         .background(AppColors.panelBackground)
@@ -220,7 +221,11 @@ struct EffectsInspector: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if let selectedSegment = projectViewModel.selectedSegment {
+            // Show transform controls if segments are selected
+            let hasSelection = !projectViewModel.selectedSegmentIDs.isEmpty || projectViewModel.selectedSegment != nil
+            let selectedSegment = projectViewModel.selectedSegment ?? projectViewModel.segments.first(where: { projectViewModel.selectedSegmentIDs.contains($0.id) })
+            
+            if hasSelection, let selectedSegment = selectedSegment {
                 // Transition Section
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Transition")
@@ -273,6 +278,42 @@ struct EffectsInspector: View {
                     Text("Transform")
                         .font(.headline)
                         .foregroundColor(AppColors.primaryText)
+                    
+                    // Scale to Fill Frame button
+                    Button(action: {
+                        projectViewModel.scaleSelectedSegmentsToFillFrame()
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            Text("Scale to Fill Frame")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(
+                            selectedSegment.transform.scaleToFillFrame 
+                                ? AppColors.tealAccent 
+                                : AppColors.tealAccent.opacity(0.3)
+                        )
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Scale and crop selected segments to fully cover the project frame")
+                    
+                    // Show status if scale to fill is active
+                    if selectedSegment.transform.scaleToFillFrame {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(AppColors.tealAccent)
+                            Text("Scale to Fill Frame is active")
+                                .font(.caption)
+                                .foregroundColor(AppColors.secondaryText)
+                        }
+                    }
+                    
+                    Divider()
+                        .padding(.vertical, 4)
                     
                     // Scale
                     VStack(alignment: .leading, spacing: 8) {
