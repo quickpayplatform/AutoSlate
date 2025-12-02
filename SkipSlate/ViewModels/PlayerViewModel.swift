@@ -4,6 +4,19 @@
 //
 //  Created by Cursor on 11/25/25.
 //
+//  MODULE: Preview/Playback
+//  - Manages single AVPlayer instance for video preview
+//  - Builds AVMutableComposition from Project data (segments, tracks, clips)
+//  - Does NOT depend on UI views (MediaImportStepView, TimelineView, etc.)
+//  - Does NOT know about services (StockService, PexelsService, etc.)
+//  - Communication: ProjectViewModel → playerViewModel.rebuildComposition(from: Project)
+//
+//  DESIGN RULES:
+//  - Only reads Project data (segments, tracks, clips, settings)
+//  - Single AVPlayer instance (never recreated, only AVPlayerItem changes)
+//  - Composition rebuild only when segments exist
+//  - Independent of media import UI changes
+//
 
 import SwiftUI
 import Combine
@@ -43,10 +56,17 @@ class PlayerViewModel: NSObject, ObservableObject {
         // Note: On macOS, AVPlayer handles audio routing automatically
         // No need to configure AVAudioSession (iOS-only API)
         
-        // Initialize player early
+        // Initialize player early - this is the SINGLE stable instance
         player = AVPlayer()
         currentProject = project
-        rebuildComposition(from: project)
+        
+        // Only rebuild composition if segments exist (e.g., after auto-edit or manual segment creation)
+        // During project creation and media import, segments don't exist yet, so skip rebuild
+        if !project.segments.isEmpty {
+            rebuildComposition(from: project)
+        } else {
+            print("SkipSlate: PlayerViewModel - Initialized with project that has no segments yet. Composition will rebuild when segments are created.")
+        }
     }
     
     func rebuildComposition(from project: Project) {

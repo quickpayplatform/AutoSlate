@@ -141,7 +141,7 @@ struct DaVinciStyleLayout<Content: View>: View {
                 }()
                 
                 ForEach(availableTabs, id: \.rawValue) { step in
-                    TabButton(
+                    WizardTabButton(
                         step: step,
                         isActive: appViewModel.currentStep == step,
                         action: {
@@ -380,7 +380,7 @@ extension DaVinciStyleLayout {
 
 // MARK: - Tab Button
 
-struct TabButton: View {
+private struct WizardTabButton: View {
     let step: WizardStep
     let isActive: Bool
     let action: () -> Void

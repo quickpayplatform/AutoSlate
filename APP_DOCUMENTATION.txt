@@ -1,0 +1,1049 @@
+================================================================================
+                    SKIPSLATE (AUTO SLATE) - COMPLETE APP DOCUMENTATION
+================================================================================
+
+Last Updated: December 1, 2025
+Version: Based on commit 620093d
+
+================================================================================
+                            TABLE OF CONTENTS
+================================================================================
+
+1. APP OVERVIEW
+2. ARCHITECTURE & DESIGN PATTERNS
+3. APP ENTRY POINT & MAIN STRUCTURE
+4. VIEWS (SCREENS) - COMPLETE BREAKDOWN
+5. VIEW MODELS - DATA MANAGEMENT
+6. MODELS - DATA STRUCTURES
+7. SERVICES - BUSINESS LOGIC
+8. UTILITIES - HELPERS & HELPERS
+9. USER FLOW & NAVIGATION
+10. KEY FEATURES & FUNCTIONALITY
+11. TECHNICAL DETAILS
+
+================================================================================
+                            1. APP OVERVIEW
+================================================================================
+
+SkipSlate (also branded as "Auto Slate") is a macOS video editing application
+built with SwiftUI and AVFoundation. The app automatically edits video by
+analyzing audio to detect silence, dead space, and bad takes, then creates
+intelligent cuts and segments.
+
+KEY CHARACTERISTICS:
+- On-device processing (no cloud APIs)
+- Uses AVFoundation, CoreImage, and CoreAudio
+- Wizard-based workflow for project creation
+- Multiple project types (Podcast, Documentary, Music Video, Dance Video,
+  Highlight Reel, Commercials)
+- Automatic video editing with audio analysis
+- Manual timeline editing capabilities
+- Color grading and audio mixing
+- Export to various formats
+
+================================================================================
+                    2. ARCHITECTURE & DESIGN PATTERNS
+================================================================================
+
+ARCHITECTURE PATTERN:
+- MVVM (Model-View-ViewModel)
+- SwiftUI for UI
+- AVFoundation for media processing
+- ObservableObject for reactive state management
+
+KEY DESIGN PATTERNS:
+1. Singleton Services: Most services use singleton pattern (shared instance)
+2. Service Layer: Business logic separated into service classes
+3. View Models: Bridge between models and views, handle state
+4. Composition Pattern: Uses AVMutableComposition for timeline building
+
+FILE ORGANIZATION:
+- Models/: Data structures (Project, Segment, MediaClip, etc.)
+- Views/: SwiftUI view components
+- ViewModels/: Observable view models
+- Services/: Business logic services
+- Utils/: Helper utilities, colors, themes
+
+================================================================================
+                    3. APP ENTRY POINT & MAIN STRUCTURE
+================================================================================
+
+SKIPSLATEAPP.SWIFT
+------------------
+Main app entry point. Defines:
+- Window configuration (1200x800 default, hidden title bar)
+- Menu bar commands (File, Edit, View, Clip, Sequence, Audio, Tools, Window, Help)
+- AppViewModel initialization
+- MenuActions wiring
+
+Key Menu Commands:
+- File: New Project, Open, Save, Import, Export
+- Edit: Undo/Redo, Cut/Copy/Paste, Split, Trim
+- View: Zoom, Toggle panels, Workspaces
+- Clip: Enable/Disable, Link/Unlink audio, Speed, Group
+- Sequence: Mark In/Out, Render cache
+- Audio: Mute/Solo, Gain, Normalize, Waveform
+- Tools: Auto Edit, Analysis, Maintenance
+
+CONTENTVIEW.SWIFT
+-----------------
+Root view that routes to different screens based on app state:
+- WelcomeView: Initial screen when no project
+- ProjectSetupWizardView: Steps 1-3 (Type, Frame, Name)
+- MediaImportStepView: Step 4 (Media import)
+- AutoEditSettingsStepView: Step 5 (Auto-edit settings)
+- ColorGradingStepView: Step 6 (Color grading)
+- AudioEditingStepView: Step 7 (Audio editing)
+- EditStepView: Step 8 (Timeline editing)
+- ExportStepView: Step 9 (Export)
+
+Navigation Logic:
+- If isInWizard && projectViewModel exists: Show wizard step views
+- If isInWizard && no projectViewModel: Show ProjectSetupWizardView
+- Otherwise: Show WelcomeView
+
+================================================================================
+                        4. VIEWS (SCREENS) - COMPLETE BREAKDOWN
+================================================================================
+
+WELCOMEVIEW.SWIFT
+-----------------
+Purpose: Initial landing screen when app launches
+Features:
+- App logo display
+- Tagline: "Smart editor that automatically skips dead space and bad takes"
+- "New Project" button (triggers appViewModel.startNewProject())
+- Dark theme background (AppColors.background)
+
+PROJECTSETUPWIZARDVIEW.SWIFT
+----------------------------
+Purpose: First 3 steps of project creation (Type, Frame, Name)
+Layout:
+- App logo in top-left
+- GlobalStepIndicator showing current step
+- Divider
+- Scrollable content area
+- Navigation buttons (Back/Next/Create Project) at bottom
+
+Step 1 - Type Selection:
+- Title: "What are you editing?"
+- Grid of ProjectTypeCard components (2 columns)
+- Project types: Podcast, Documentary, Music Video, Dance Video,
+  Highlight Reel, Commercials
+- Each card shows icon, name, description
+
+Step 2 - Frame & Resolution:
+- Title: "Choose frame & resolution"
+- Aspect Ratio cards (3 columns): 16:9, 4:3, 1:1, 9:16, 21:9
+- Resolution chips (horizontal): Based on selected aspect ratio
+- Resolutions: 1080p, 4K, 720p, 480p, etc.
+
+Step 3 - Project Name:
+- Text field for project name
+- "Create Project" button (disabled if name empty)
+- Creates project and moves to Media step
+
+MEDIAIMPORTSTEPVIEW.SWIFT
+-------------------------
+Purpose: Import media files and search stock footage
+Features:
+- Two tabs: "My Media" and "Stock"
+- My Media tab:
+  * File picker button
+  * Grid/list of imported clips
+  * Clip cards showing thumbnail, duration, file name
+  * Drag-and-drop support
+  * Quality indicators
+- Stock tab:
+  * Search bar for Pexels stock footage
+  * Grid of stock video cards
+  * Download/import buttons
+  * Pagination ("Load More")
+  * Attribution footer
+
+Integration:
+- Uses MediaImportService for file handling
+- Uses StockService/PexelsService for stock footage
+- Updates ProjectViewModel with imported clips
+
+AUTOEDITSETTINGSSTEPVIEW.SWIFT
+------------------------------
+Purpose: Configure auto-edit settings before running
+Features:
+- Settings controls:
+  * Transition duration slider
+  * Minimum segment length
+  * Maximum segment length
+  * Silence threshold
+  * Quality threshold
+- "Run Auto Edit" button
+- Progress indicator during processing
+- Status messages
+- Error display
+
+Integration:
+- Uses AutoEditService to generate segments
+- Updates ProjectViewModel with generated segments
+- Moves to next step when complete
+
+COLORGRADINGSTEPVIEW.SWIFT
+---------------------------
+Purpose: Color correction and grading
+Layout: DaVinci-style interface
+Features:
+- Color wheel for hue/saturation adjustments
+- Sliders for:
+  * Brightness
+  * Contrast
+  * Saturation
+  * Shadows
+  * Highlights
+  * Temperature
+  * Tint
+- Preview panel showing color adjustments
+- Preset color grades
+- Reset button
+
+Integration:
+- Updates Project.colorSettings
+- Real-time preview via PlayerViewModel
+
+AUDIOEDITINGSTEPVIEW.SWIFT
+---------------------------
+Purpose: Audio mixing and editing
+Layout: DaVinci-style interface
+Features:
+- Audio track controls:
+  * Volume sliders per track
+  * Mute/Solo buttons
+  * Fade in/out controls
+- Music track management:
+  * Add/remove music
+  * Volume control
+  * Fade out at end
+- Waveform visualization
+- Audio analysis tools
+
+Integration:
+- Updates Project.audioSettings
+- Uses AudioService for analysis
+- Updates PlayerViewModel audio mix
+
+EDITSTEPVIEW.SWIFT
+------------------
+Purpose: Timeline editing and manual adjustments
+Layout: DaVinci-style interface with:
+- Top: Preview panel (PreviewPanel)
+- Middle: Timeline (TimelineView)
+- Bottom: Inspector panel (InspectorPanel)
+
+Features:
+- Timeline editing:
+  * Drag segments to reposition
+  * Split segments at playhead
+  * Trim segment in/out points
+  * Delete segments
+  * Enable/disable segments
+- Preview:
+  * Video player with controls
+  * Play/pause, seek, scrub
+  * Fullscreen option
+- Inspector:
+  * Selected segment properties
+  * Effects controls
+  * Transform controls
+
+Integration:
+- Uses TimelineView for timeline display
+- Uses PlayerViewModel for playback
+- Updates ProjectViewModel on edits
+
+EXPORTSTEPVIEW.SWIFT
+--------------------
+Purpose: Export final video
+Features:
+- Format selection (MP4, MOV, etc.)
+- Quality selection (High, Medium, Low)
+- Resolution display
+- Export location picker
+- Progress bar during export
+- "Export" button
+- Completion message
+
+Integration:
+- Uses ExportService for rendering
+- Shows progress updates
+- Handles errors
+
+PREVIEWPANEL.SWIFT
+-----------------
+Purpose: Video preview player component
+Features:
+- AVPlayer integration via PlayerHostingView
+- Play/pause controls
+- Time display (current/total)
+- Playhead scrubbing
+- Fullscreen toggle
+- Volume control
+
+PLAYERHOSTINGVIEW.SWIFT
+-----------------------
+Purpose: NSView wrapper for AVPlayerLayer
+Features:
+- Bridges AppKit (AVPlayerLayer) to SwiftUI
+- Handles layout updates
+- Manages player layer frame
+- Observes player state
+
+TIMELINEVIEW.SWIFT
+------------------
+Purpose: Main timeline display
+Features:
+- Horizontal timeline with segments
+- Playhead indicator
+- Zoom controls
+- Track headers (V1, V2, A1, etc.)
+- Segment blocks showing:
+  * Color-coded by clip
+  * Duration
+  * Thumbnail (optional)
+- Drag-and-drop for segment reordering
+- Click to select segments
+
+TIMELINETRACKVIEW.SWIFT
+-----------------------
+Purpose: Individual track row in timeline
+Features:
+- Track label (V1, V2, A1, etc.)
+- Segment blocks for segments in this track
+- Drag-and-drop zones
+- Height adjustment
+
+ENHANCEDTIMELINEVIEW.SWIFT
+--------------------------
+Purpose: Enhanced timeline with additional features
+Features:
+- Multi-track support
+- Vertical scrolling
+- Horizontal scrolling with zoom
+- Ruler with time markers
+- Snap-to-grid
+- Magnetic timeline
+
+INSPECTORPANEL.SWIFT
+--------------------
+Purpose: Properties panel for selected items
+Features:
+- Selected segment properties:
+  * Duration
+  * Source clip info
+  * Composition start time
+  * Effects
+  * Transform values
+- Clip properties:
+  * File path
+  * Resolution
+  * Frame rate
+  * Duration
+  * Audio track info
+
+MEDIAINSPECTOR.SWIFT
+--------------------
+Purpose: Detailed media file inspector
+Features:
+- File metadata
+- Video properties
+- Audio properties
+- Thumbnail gallery
+- Quality analysis results
+
+SEGMENTPREVIEWWINDOW.SWIFT
+--------------------------
+Purpose: Popup window for segment preview
+Features:
+- Isolated segment playback
+- Frame-by-frame navigation
+- Export segment option
+
+GLOBALSTEPINDICATOR.SWIFT
+-------------------------
+Purpose: Step progress indicator in wizard
+Features:
+- Shows current step number
+- Progress dots for all steps
+- Step labels
+- Visual feedback for current step
+
+DAVINCISTYLELAYOUT.SWIFT
+------------------------
+Purpose: DaVinci Resolve-style layout component
+Features:
+- Tab bar at top for step navigation
+- Main content area
+- Bottom panel for tools
+- Consistent styling across editing steps
+
+COLORWHEELCOMPONENTS.SWIFT
+--------------------------
+Purpose: Color wheel UI components
+Features:
+- Interactive color wheel
+- Hue/saturation picker
+- Brightness slider
+- Color preview swatch
+
+OPTIONCHIP.SWIFT
+----------------
+Purpose: Reusable chip/button component
+Features:
+- Selectable state
+- Custom styling
+- Icon support
+- Used for resolution presets, aspect ratios, etc.
+
+================================================================================
+                      5. VIEW MODELS - DATA MANAGEMENT
+================================================================================
+
+APPVIEWMODEL.SWIFT
+-----------------
+Purpose: Top-level app state management
+Properties:
+- currentStep: WizardStep (current wizard step)
+- projectViewModel: ProjectViewModel? (current project)
+- isInWizard: Bool (whether in project creation flow)
+
+Methods:
+- startNewProject(): Enters wizard at step 1
+- createProject(): Creates project and moves to media step
+- navigateToEditingStep(): Navigate to specific editing step
+- nextStep(): Move to next wizard step
+- previousStep(): Move to previous wizard step
+- goToStep(): Jump to specific step (with validation)
+
+WizardStep Enum:
+- type (1): Project type selection
+- frame (2): Aspect ratio and resolution
+- name (3): Project name
+- media (4): Media import
+- autoEdit (5): Auto-edit settings
+- color (6): Color grading
+- audio (7): Audio editing
+- edit (8): Timeline editing
+- export (9): Export
+
+PROJECTVIEWMODEL.SWIFT
+----------------------
+Purpose: Project-specific state and operations
+Properties:
+- project: Project (the project data)
+- selectedSegment: Segment? (currently selected segment)
+- selectedSegmentIDs: Set<Segment.ID> (multi-selection)
+- isAutoEditing: Bool (auto-edit in progress)
+- autoEditStatus: String (status message)
+- isExporting: Bool (export in progress)
+- exportProgress: Double (0.0-1.0)
+- autoEditSettings: AutoEditSettings
+- timelineZoom: Double (timeline zoom level)
+- selectedTimelineTool: TimelineTool (cursor, razor, etc.)
+- clipQualityScores: [UUID: Float] (quality cache)
+- cachedAnalyzedSegments: [Segment] (from last auto-edit)
+- cachedAnalyzedClipIDs: Set<UUID> (analyzed clips)
+- deletedClipIDs: Set<UUID> (deleted clips)
+- selectedClipIDs: Set<UUID> (favorited clips)
+
+Key Methods:
+- importMedia(): Import media files
+- runAutoEdit(): Run automatic editing
+- rebuildComposition(): Rebuild AVFoundation composition
+- addSegmentToTimeline(): Add segment to timeline
+- moveSegment(): Move segment to new position
+- removeSegment(): Delete segment
+- splitSegment(): Split segment at time
+- toggleSegmentEnabled(): Enable/disable segment
+- updateSegmentTiming(): Update segment in/out points
+- seekToSegment(): Seek player to segment
+- export(): Export project to file
+- qualityScore(): Get quality score for segment
+
+PLAYERVIEWMODEL.SWIFT
+---------------------
+Purpose: AVPlayer management and playback
+Properties:
+- isPlaying: Bool (playback state)
+- currentTime: Double (playback position)
+- duration: Double (total duration)
+- player: AVPlayer? (AVFoundation player)
+- composition: AVMutableComposition? (current composition)
+
+Key Methods:
+- rebuildComposition(): Rebuild composition from project
+- buildComposition(): Build AVMutableComposition from segments
+- updatePlayer(): Update player with new composition
+- play(): Start playback
+- pause(): Pause playback
+- seek(): Seek to time
+- setVolume(): Set playback volume
+- observeValue(): KVO observer for player item status
+
+Features:
+- Single shared AVPlayer instance
+- Composition hash for change detection
+- Debounced updates
+- Playback state preservation during rebuilds
+- Video composition with transitions
+- Audio mix with fades
+- Image segment handling
+
+================================================================================
+                        6. MODELS - DATA STRUCTURES
+================================================================================
+
+PROJECT.SWIFT
+------------
+Main project data structure:
+- id: UUID
+- name: String
+- type: ProjectType (podcast, documentary, musicVideo, etc.)
+- aspectRatio: AspectRatio (16:9, 4:3, 1:1, etc.)
+- resolution: ResolutionPreset (1080p, 4K, etc.)
+- clips: [MediaClip] (imported media files)
+- segments: [Segment] (timeline segments)
+- tracks: [TimelineTrack] (multi-track timeline)
+- audioSettings: AudioSettings
+- colorSettings: ColorSettings
+- autoEditSettings: AutoEditSettings?
+- letterboxSettings: LetterboxSettings
+
+LetterboxSettings:
+- mode: LetterboxMode (none, alwaysOn, fadeIn, fadeOut)
+- height: Double (bar height 0.0-0.5)
+- fadeDuration: Double (fade time in seconds)
+
+MEDIACLIP.SWIFT
+--------------
+Represents an imported media file:
+- id: UUID
+- url: URL (file location)
+- type: MediaClipType (videoWithAudio, videoOnly, audioOnly, image)
+- duration: Double (seconds)
+- isSelected: Bool
+- hasAudioTrack: Bool
+- colorIndex: Int (for timeline visualization)
+- shakeLevel: Double (0.0-1.0, for stabilization)
+- stabilizationProfile: StabilizationProfile?
+
+StabilizationProfile:
+- enabled: Bool
+- intensity: Double (0.0-1.0)
+
+ClipColorPalette:
+- Static color arrays for clip visualization
+- highlightReelColors: 12 specific colors for highlight reels
+
+SEGMENT.SWIFT
+-------------
+Represents a timeline segment (clip or gap):
+- id: UUID
+- kind: SegmentKind (clip or gap)
+- sourceClipID: UUID? (nil for gaps)
+- sourceStart: Double (start time in source)
+- sourceEnd: Double (end time in source)
+- enabled: Bool
+- colorIndex: Int
+- effects: SegmentEffects
+- compositionStartTime: Double (position in timeline)
+- gapDuration: Double? (for gap segments)
+
+SegmentEffects:
+- transitionType: SegmentTransitionType (none, crossfade, dipToBlack, dipToWhite)
+- transitionDuration: Double
+- scale: Double
+- positionX/Y: Double
+- rotation: Double (degrees)
+- cropTop/Bottom/Left/Right: Double
+- compositionMode: CompositionMode (fit, fill, fitWithLetterbox)
+- compositionAnchor: CompositionAnchor (center, top, bottom, left, right)
+
+Computed Properties:
+- duration: Calculated from sourceStart/sourceEnd or gapDuration
+- compositionEndTime: compositionStartTime + duration
+- isGap/isClip: Boolean helpers
+- clipID: Safe accessor for sourceClipID
+
+PROJECTTYPE.SWIFT
+-----------------
+Enum for project types:
+- podcast
+- documentary
+- musicVideo
+- danceVideo
+- highlightReel
+- commercials
+
+Each has displayName property.
+
+ASPECTRATIO.SWIFT
+-----------------
+Enum for aspect ratios:
+- widescreen (16:9)
+- standard (4:3)
+- square (1:1)
+- portrait (9:16)
+- cinematic (21:9)
+
+RESOLUTIONPRESET.SWIFT
+---------------------
+Struct for resolution:
+- width: Int
+- height: Int
+- label: String
+
+Static presets: 1080p, 4K, 720p, 480p, etc.
+Method: presetsForAspectRatio() returns available presets.
+
+AUDIOSETTINGS.SWIFT
+------------------
+Audio configuration:
+- musicVolume: Double (0.0-1.0)
+- videoAudioVolume: Double (0.0-1.0)
+- fadeOutDuration: Double (seconds)
+- normalizeLoudness: Bool
+
+COLORSETTINGS.SWIFT
+-------------------
+Color grading settings:
+- brightness: Double (-1.0 to 1.0)
+- contrast: Double (-1.0 to 1.0)
+- saturation: Double (-1.0 to 1.0)
+- shadows: Double (-1.0 to 1.0)
+- highlights: Double (-1.0 to 1.0)
+- temperature: Double (-1.0 to 1.0, cool to warm)
+- tint: Double (-1.0 to 1.0, green to magenta)
+
+AUTOEDITSETTINGS.SWIFT
+----------------------
+Auto-edit configuration:
+- transitionDuration: Double (seconds)
+- minSegmentLength: Double (minimum segment duration)
+- maxSegmentLength: Double (maximum segment duration)
+- silenceThreshold: Double (audio level threshold)
+- qualityThreshold: Float (frame quality threshold)
+- projectType: ProjectType (affects editing style)
+
+EXPORTFORMAT.SWIFT
+------------------
+Enum for export formats:
+- mp4
+- mov
+- m4v
+
+HIGHLIGHTREELSETTINGS.SWIFT
+---------------------------
+Settings specific to highlight reel projects:
+- musicClipID: UUID? (selected music track)
+- beatSyncEnabled: Bool
+- visualAnalysisEnabled: Bool
+- targetDuration: Double? (target reel length)
+
+TIMELINETRACK.SWIFT
+-------------------
+Represents a timeline track:
+- id: UUID
+- type: TimelineTrackType (videoPrimary, videoOverlay, audio)
+- name: String (V1, V2, A1, etc.)
+- segments: [Segment.ID] (segment IDs in this track)
+- isLocked: Bool
+- isMuted: Bool
+- isSolo: Bool
+
+TIMELINETOOL 2.SWIFT
+--------------------
+Enum for timeline editing tools:
+- cursor (selection)
+- razor (split)
+- trim (trim in/out)
+- hand (pan)
+
+SEGMENTIDTRANSFER.SWIFT
+-----------------------
+Codable struct for drag-and-drop:
+- segmentID: UUID
+- Used for timeline drag operations
+
+STOCKCLIP.SWIFT
+---------------
+Represents stock footage from Pexels:
+- id: String (Pexels ID)
+- url: URL (video URL)
+- thumbnailURL: URL
+- duration: Double
+- width: Int
+- height: Int
+- photographer: String
+- photographerURL: URL
+
+================================================================================
+                        7. SERVICES - BUSINESS LOGIC
+================================================================================
+
+AUTOEDITSERVICE.SWIFT
+---------------------
+Purpose: Automatic video editing based on audio analysis
+Main Method: generateSegments()
+- Analyzes audio to detect silence and speech
+- Creates segments based on project type
+- Returns array of Segment objects
+
+Project Type Handlers:
+- autoEditPodcast(): Removes silence, keeps speech
+- autoEditDocumentary(): Similar to podcast
+- autoEditMusicVideo(): Syncs to music beats
+- autoEditDanceVideo(): Syncs to music, emphasizes movement
+- autoEditHighlightReel(): Creates highlight reel from clips
+- autoEditCommercials(): Creates commercial cuts
+
+Integration:
+- Uses AudioAnalysisEngine for audio analysis
+- Uses FrameAnalysisService for visual analysis
+- Uses HighlightReelService for highlight reels
+
+AUDIOANALYSISENGINE.SWIFT
+------------------------
+Purpose: Audio analysis for silence detection
+Methods:
+- analyzeSilence(): Detects silent segments
+- analyzeBeats(): Detects music beats (for music videos)
+- analyzeLoudness(): Analyzes audio levels
+
+Uses AVFoundation's AVAudioFile and audio analysis APIs.
+
+FRAMEANALYSISSERVICE.SWIFT
+--------------------------
+Purpose: Visual frame analysis for quality scoring
+Methods:
+- analyzeFrameQuality(): Scores frame quality (0.0-1.0)
+- analyzeShake(): Detects camera shake
+- analyzeBrightness(): Analyzes exposure
+- analyzeFocus(): Detects focus quality
+
+Uses CoreImage for image processing.
+
+TRANSITIONSERVICE.SWIFT
+----------------------
+Purpose: Creates video and audio transitions
+Methods:
+- createVideoCompositionWithTransitions(): Creates AVMutableVideoComposition
+  with crossfades, fades, transforms
+- createAudioMixWithTransitions(): Creates AVAudioMix with crossfades
+
+Features:
+- Crossfade transitions between segments
+- Dip to black/white transitions
+- Transform application (scale, position, rotation)
+- Opacity ramps for fades
+- Music track handling (constant volume, fade out at end)
+
+EXPORTSERVICE.SWIFT
+-------------------
+Purpose: Export final video to file
+Main Method: export()
+- Builds composition from project
+- Applies color settings
+- Applies audio mix
+- Renders to file using AVAssetExportSession
+- Shows progress updates
+
+Features:
+- Multiple format support (MP4, MOV, M4V)
+- Quality presets (High, Medium, Low)
+- Resolution options
+- Progress tracking
+- Error handling
+
+MEDIAIMPORTSERVICE.SWIFT
+------------------------
+Purpose: Import and process media files
+Methods:
+- importMedia(): Import files from URLs
+- validateMedia(): Validate file format
+- extractMetadata(): Get duration, resolution, etc.
+- createThumbnail(): Generate thumbnail image
+
+Features:
+- Supports video, audio, and image files
+- Extracts metadata (duration, resolution, frame rate)
+- Creates thumbnails
+- Handles errors gracefully
+
+STOCKSERVICE.SWIFT
+------------------
+Purpose: Search and download stock footage from Pexels
+Methods:
+- searchVideos(): Search Pexels API
+- downloadVideo(): Download video file
+- getThumbnail(): Get thumbnail URL
+
+Integration:
+- Uses PexelsService for API calls
+- Downloads to temporary directory
+- Caches downloaded files
+- Handles network errors
+
+PEXELSSERVICE.SWIFT
+-------------------
+Purpose: Pexels API client
+Methods:
+- search(): Search Pexels API
+- Uses backend proxy (localhost:4000) for API calls
+- Returns StockClip objects
+
+HIGHLIGHTREELSERVICE.SWIFT
+--------------------------
+Purpose: Specialized service for highlight reel creation
+Methods:
+- generateHighlightReel(): Creates highlight reel segments
+- Analyzes music beats
+- Analyzes visual quality
+- Selects best moments
+- Syncs to music
+
+Uses:
+- HighlightReelMusicAnalyzer: Analyzes music for beats
+- HighlightReelVisualAnalyzer: Analyzes visual quality
+
+AUDIOSERVICE.SWIFT
+------------------
+Purpose: Audio processing utilities
+Methods:
+- normalizeAudio(): Normalize audio levels
+- detectSilence(): Detect silent segments
+- analyzeLoudness(): Analyze audio loudness
+- createFade(): Create fade in/out
+
+VIDEOSTABILIZATIONSERVICE.SWIFT
+--------------------------------
+Purpose: Video stabilization
+Methods:
+- analyzeShake(): Analyze camera shake level
+- stabilizeVideo(): Apply stabilization
+- Uses AVFoundation's video stabilization
+
+RAWDECODESERVICE.SWIFT
+----------------------
+Purpose: Decode RAW image/video formats
+Methods:
+- decodeRAW(): Decode RAW files
+- Supports various RAW formats
+
+CINEMATICSCORINGENGINE.SWIFT
+----------------------------
+Purpose: Score segments for cinematic quality
+Methods:
+- scoreSegment(): Score segment (0.0-1.0)
+- Considers: composition, lighting, motion, etc.
+
+CINEMATICSEGMENTSELECTOR.SWIFT
+-------------------------------
+Purpose: Select best segments for cinematic projects
+Methods:
+- selectSegments(): Select segments based on cinematic score
+- Prioritizes high-quality moments
+
+================================================================================
+                        8. UTILITIES - HELPERS
+================================================================================
+
+APPCOLORS.SWIFT
+---------------
+Color constants for app theming:
+- background: Dark gray (#121214)
+- panelBackground: Slightly lighter gray
+- cardBase: Card background color
+- primaryText: Near-white text
+- secondaryText: Light gray text
+- tertiaryText: Mid-gray text
+- Project type accent colors (podcastColor, documentaryColor, etc.)
+- tealAccent: #1ED6C1
+- orangeAccent: #FFB347
+
+Methods:
+- accentColor(for:): Returns accent color for project type
+
+COLORPALETTE.SWIFT
+------------------
+Color palette utilities:
+- Clip color arrays
+- Highlight reel color arrays (12 specific colors)
+
+AUTOEDITTHEME.SWIFT
+-------------------
+Theme settings for auto-edit UI:
+- Color schemes
+- Typography
+- Spacing
+
+MENUACTIONS.SWIFT
+-----------------
+Central handler for menu bar actions:
+- File menu: New, Open, Save, Import, Export
+- Edit menu: Undo/Redo, Cut/Copy/Paste, Split, Trim
+- View menu: Zoom, Toggle panels, Workspaces
+- Clip menu: Enable/Disable, Link/Unlink, Speed, Group
+- Sequence menu: Mark In/Out, Render cache
+- Audio menu: Mute/Solo, Gain, Normalize
+- Tools menu: Auto Edit, Analysis, Maintenance
+- Window menu: Minimize, Zoom, Fullscreen
+- Help menu: Help, Shortcuts, Report Bug
+
+All methods are stubs that print logs and call appropriate view model methods.
+
+SEGMENTMANAGER.SWIFT
+--------------------
+Utilities for segment management:
+- Segment validation
+- Segment sorting
+- Segment grouping
+
+TEEALPROGRESSVIEWSTYLE.SWIFT
+----------------------------
+Custom progress view style with teal accent color.
+
+================================================================================
+                      9. USER FLOW & NAVIGATION
+================================================================================
+
+INITIAL FLOW:
+1. App launches → WelcomeView
+2. User clicks "New Project" → Enters wizard at Step 1
+3. Step 1: Select project type → Next
+4. Step 2: Select aspect ratio and resolution → Next
+5. Step 3: Enter project name → Create Project
+6. Step 4: Import media files (My Media or Stock)
+7. Step 5: Configure auto-edit settings → Run Auto Edit
+8. Step 6: Color grading (optional adjustments)
+9. Step 7: Audio editing (optional adjustments)
+10. Step 8: Timeline editing (manual adjustments)
+11. Step 9: Export final video
+
+EDITING FLOW (After Auto-Edit):
+- User can navigate between steps 6-9 using tabs
+- Changes are saved to project in real-time
+- Preview updates automatically
+- Can re-run auto-edit (but segments are preserved)
+
+NAVIGATION RULES:
+- Cannot go back to Media or AutoEdit after segments exist
+- Forward navigation only after auto-edit completes
+- Can jump between Color, Audio, Edit, Export steps
+
+================================================================================
+                   10. KEY FEATURES & FUNCTIONALITY
+================================================================================
+
+AUTO-EDIT FEATURES:
+- Audio-based silence detection
+- Quality-based frame selection
+- Project-type-specific editing:
+  * Podcast: Removes silence, keeps speech
+  * Documentary: Similar to podcast
+  * Music Video: Syncs to music beats
+  * Dance Video: Syncs to music, emphasizes movement
+  * Highlight Reel: Creates highlights from best moments
+  * Commercials: Creates commercial-style cuts
+- Configurable settings (transition duration, thresholds)
+- Progress tracking during analysis
+
+TIMELINE FEATURES:
+- Multi-track timeline (V1, V2, A1, etc.)
+- Drag-and-drop segment reordering
+- Split segments at playhead
+- Trim segment in/out points
+- Enable/disable segments
+- Delete segments
+- Zoom controls
+- Playhead scrubbing
+- Segment preview
+
+COLOR GRADING:
+- Color wheel for hue/saturation
+- Brightness/Contrast sliders
+- Shadows/Highlights adjustment
+- Temperature/Tint controls
+- Real-time preview
+- Preset color grades
+
+AUDIO EDITING:
+- Per-track volume control
+- Mute/Solo tracks
+- Fade in/out
+- Music track management
+- Audio normalization
+- Waveform visualization
+
+EXPORT FEATURES:
+- Multiple formats (MP4, MOV, M4V)
+- Quality presets
+- Resolution options
+- Progress tracking
+- Error handling
+
+STOCK FOOTAGE:
+- Pexels integration
+- Search functionality
+- Download and import
+- Thumbnail preview
+- Attribution display
+
+================================================================================
+                        11. TECHNICAL DETAILS
+================================================================================
+
+AVFOUNDATION INTEGRATION:
+- AVMutableComposition: Timeline building
+- AVMutableVideoComposition: Video transitions and effects
+- AVMutableAudioMix: Audio mixing and fades
+- AVPlayer: Playback
+- AVPlayerLayer: Video rendering
+- AVAssetExportSession: Export
+
+COREMAGE INTEGRATION:
+- Color correction filters
+- Image processing for frame analysis
+- Thumbnail generation
+
+COREAUDIO INTEGRATION:
+- Audio analysis
+- Silence detection
+- Beat detection
+- Loudness analysis
+
+SWIFTUI PATTERNS:
+- @Published properties for reactive updates
+- @ObservedObject for view models
+- @EnvironmentObject for app-wide state
+- @State for local view state
+
+ERROR HANDLING:
+- Comprehensive validation throughout
+- Error messages displayed to user
+- Graceful degradation
+- Logging for debugging
+
+PERFORMANCE:
+- Composition hash for change detection
+- Debounced updates
+- Async/await for long operations
+- Background processing where possible
+- Caching of analysis results
+
+SECURITY:
+- App Sandbox enabled
+- File access permissions
+- Network permissions for Pexels
+- Secure file handling
+
+================================================================================
+                              END OF DOCUMENTATION
+================================================================================
+

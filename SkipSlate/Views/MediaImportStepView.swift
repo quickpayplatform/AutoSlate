@@ -4,6 +4,13 @@
 //
 //  Created by Cursor on 11/25/25.
 //
+//  DESIGN RULE: Media Import Module
+//  - This view ONLY manages importing media files and adding them to project.clips
+//  - It MUST NOT access PlayerViewModel, AVPlayer, or AVMutableComposition
+//  - It communicates with ProjectViewModel via: projectViewModel.importMedia(urls:)
+//  - Composition rebuild happens automatically when segments are created (during auto-edit)
+//  - This ensures media import UI changes don't break video preview
+//
 
 import SwiftUI
 import AppKit

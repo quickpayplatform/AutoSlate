@@ -4,6 +4,17 @@
 //
 //  Created by Cursor on 11/25/25.
 //
+//  MODULE: Export
+//  - This service builds its own composition independently from PlayerViewModel
+//  - It does NOT depend on preview or playback
+//  - It reads Project data and renders to file
+//  - Communication: ExportStepView → ExportService.export(project:) → file output
+//
+//  NOTE: Global variables (globalColorSettings, imageSegmentsByTime) are shared with
+//  PlayerViewModel because they're used by custom video compositors (ImageAwareCompositor, etc.)
+//  which need access to these values. This is a technical limitation of AVFoundation's
+//  compositor API, not a design choice. Both services clear/reset these before use.
+//
 
 import Foundation
 import AVFoundation
@@ -11,9 +22,11 @@ import CoreImage
 import AppKit
 
 // Global storage for color settings (used by compositor)
+// NOTE: Shared with PlayerViewModel for compositor access (AVFoundation limitation)
 var globalColorSettings: ColorSettings = .default
 
 // Global storage for image segments (used by compositor)
+// NOTE: Shared with PlayerViewModel for compositor access (AVFoundation limitation)
 var imageSegmentsByTime: [CMTime: (url: URL, duration: CMTime)] = [:]
 
 class ExportService {

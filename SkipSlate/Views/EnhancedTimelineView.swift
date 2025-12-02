@@ -4,6 +4,13 @@
 //
 //  Created by Cursor on 11/25/25.
 //
+//  MODULE: Timeline
+//  - Primary timeline UI for segment editing
+//  - Reads project data from ProjectViewModel
+//  - Updates segments via ProjectViewModel methods (moveSegment, splitSegment, etc.)
+//  - Does NOT know about media import UI or stock providers
+//  - Communication: TimelineView → projectViewModel.moveSegment(...) → project updated → composition rebuild
+//
 
 import SwiftUI
 import AVFoundation

@@ -4,6 +4,13 @@
 //
 //  Created by Cursor on 11/25/25.
 //
+//  MODULE: Preview/Playback UI
+//  - Displays video preview using PlayerViewModel's AVPlayer
+//  - Observes PlayerViewModel for playback state (isPlaying, currentTime, duration)
+//  - Does NOT modify project data or segments
+//  - Does NOT know about media import or timeline editing logic
+//  - Communication: PreviewPanel → observes projectViewModel.playerVM → displays playback
+//
 
 import SwiftUI
 import AVKit

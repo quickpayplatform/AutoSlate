@@ -6,6 +6,12 @@
 //
 //  On-device auto-edit service using real audio analysis
 //
+//  MODULE: Auto Edit
+//  - This service generates segments based on audio/video analysis
+//  - It does NOT modify PlayerViewModel or composition directly
+//  - It returns segments to ProjectViewModel, which handles composition rebuild
+//  - Communication: AutoEditService → ProjectViewModel.runAutoEdit() → segments added to project
+//
 
 import Foundation
 import AVFoundation

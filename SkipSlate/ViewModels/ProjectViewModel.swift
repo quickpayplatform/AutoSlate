@@ -4,6 +4,17 @@
 //
 //  Created by Cursor on 11/25/25.
 //
+//  MODULE: Project State Management (Central Coordinator)
+//  - Owns Project data model and PlayerViewModel
+//  - Coordinates communication between modules:
+//    * Media Import → adds clips to project.clips
+//    * Auto Edit → adds segments to project.segments → triggers composition rebuild
+//    * Timeline → modifies segments → triggers composition rebuild
+//    * Preview → reads PlayerViewModel for playback
+//    * Export → reads Project data independently
+//  - Does NOT contain UI-specific logic
+//  - Provides clear, high-level methods for module communication
+//
 
 import SwiftUI
 import AVFoundation
@@ -359,8 +370,12 @@ class ProjectViewModel: ObservableObject {
         self.playerViewModel = PlayerViewModel(project: project)
     }
     
+    /// Accessor for PlayerViewModel - ensures single stable instance
+    /// PlayerViewModel is created in init() and should never be nil after initialization
     var playerVM: PlayerViewModel {
+        // Safety check: if somehow nil, create it (should never happen after init)
         if playerViewModel == nil {
+            print("SkipSlate: ⚠️ WARNING - PlayerViewModel was nil, creating new instance. This should not happen after init.")
             playerViewModel = PlayerViewModel(project: project)
         }
         return playerViewModel!
@@ -784,13 +799,13 @@ class ProjectViewModel: ObservableObject {
                         print("SkipSlate: ProjectViewModel - WARNING: Project update mismatch! Expected \(updatedProject.clips.count), got \(project.clips.count)")
                     }
                     
-                    // Rebuild preview if we have clips
-                    if let playerVM = playerViewModel {
-                        print("SkipSlate: ProjectViewModel - Rebuilding composition with \(project.clips.count) clips")
-                        playerVM.rebuildComposition(from: project)
-                    } else {
-                        print("SkipSlate: ProjectViewModel - WARNING: playerViewModel is nil!")
-                    }
+                    // NOTE: Do NOT call rebuildComposition() here - segments don't exist yet!
+                    // Composition rebuild will happen automatically when:
+                    // 1. Auto-edit creates segments (runAutoEdit calls rebuildComposition)
+                    // 2. User manually adds segments to timeline (addSegmentToTimeline calls immediateRebuild)
+                    // Calling rebuildComposition without segments would fail early and potentially leave
+                    // PlayerViewModel in an inconsistent state, causing preview to break when UI changes.
+                    print("SkipSlate: ProjectViewModel - Media imported successfully. Composition will rebuild when segments are created.")
                 } else {
                     print("SkipSlate: ProjectViewModel - No clips were imported - check file types and permissions")
                     print("SkipSlate: ProjectViewModel - URLs provided: \(urls.map { $0.lastPathComponent })")
@@ -1046,7 +1061,8 @@ class ProjectViewModel: ObservableObject {
                     
                     // Rebuild preview composition
                     print("SkipSlate: Rebuilding preview composition...")
-                    playerViewModel?.rebuildComposition(from: project)
+                    // Use playerVM computed property to ensure PlayerViewModel exists
+                    playerVM.rebuildComposition(from: project)
                 }
             } catch {
                 await MainActor.run {
@@ -1182,7 +1198,8 @@ class ProjectViewModel: ObservableObject {
             try? await Task.sleep(nanoseconds: 300_000_000) // 0.3 seconds
             if !Task.isCancelled {
                 let hashBeforeRebuild = self.projectHash()
-                self.playerViewModel?.rebuildComposition(from: self.project)
+                // Use playerVM computed property to ensure PlayerViewModel exists
+                self.playerVM.rebuildComposition(from: self.project)
                 self.lastRebuildHash = hashBeforeRebuild
             }
         }
@@ -1195,7 +1212,8 @@ class ProjectViewModel: ObservableObject {
             print("SkipSlate: Skipping immediate rebuild - no changes detected")
             return
         }
-        playerViewModel?.rebuildComposition(from: project)
+        // Use playerVM computed property to ensure PlayerViewModel exists
+        playerVM.rebuildComposition(from: project)
         lastRebuildHash = currentHash
     }
     
@@ -2561,7 +2579,8 @@ class ProjectViewModel: ObservableObject {
                     print("SkipSlate: Fill gaps complete - added \(segmentsToAdd.count) segments, new total: \(project.segments.count)")
                     
                     // Rebuild preview composition
-                    playerViewModel?.rebuildComposition(from: project)
+                    // Use playerVM computed property to ensure PlayerViewModel exists
+                    playerVM.rebuildComposition(from: project)
                 }
             } catch {
                 await MainActor.run {

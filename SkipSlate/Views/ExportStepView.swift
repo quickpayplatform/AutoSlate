@@ -4,6 +4,12 @@
 //
 //  Created by Cursor on 11/25/25.
 //
+//  MODULE: Export UI
+//  - Export UI that calls ExportService
+//  - Reads Project data from ProjectViewModel
+//  - Does NOT depend on PlayerViewModel or preview
+//  - Communication: ExportStepView → ExportService.export(project:) → file output
+//
 
 import SwiftUI
 import AppKit
