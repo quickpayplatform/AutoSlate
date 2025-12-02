@@ -18,12 +18,23 @@ import AVFoundation
 
 struct PreviewPanel: View {
     @ObservedObject var projectViewModel: ProjectViewModel
+    // CRITICAL: Also observe PlayerViewModel directly to ensure updates when composition changes
+    // This ensures the preview updates correctly after auto-edit completes and composition is rebuilt
+    @ObservedObject private var playerViewModel: PlayerViewModel
+    
+    init(projectViewModel: ProjectViewModel) {
+        self.projectViewModel = projectViewModel
+        // Access playerVM to ensure it exists and observe it for changes
+        self._playerViewModel = ObservedObject(wrappedValue: projectViewModel.playerVM)
+    }
     
     var body: some View {
         VStack(spacing: 0) {
             // Video preview - use the shared player directly
             GeometryReader { geometry in
-                if let player = projectViewModel.playerVM.player {
+                // CRITICAL: Observe playerViewModel.duration to force update when composition changes
+                // When composition is rebuilt, duration changes, triggering view update
+                if let player = playerViewModel.player, playerViewModel.duration > 0 {
                     VideoPlayerView(player: player)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .background(Color.black)
@@ -31,14 +42,14 @@ struct PreviewPanel: View {
                     Color.black
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .overlay(
-                            Text("No player available")
+                            Text(playerViewModel.duration > 0 ? "Loading..." : "No player available")
                                 .foregroundColor(.white)
                         )
                 }
             }
             
             // Transport controls
-            TransportControls(playerViewModel: projectViewModel.playerVM)
+            TransportControls(playerViewModel: playerViewModel)
                 .padding()
                 .background(AppColors.panelBackground)
         }

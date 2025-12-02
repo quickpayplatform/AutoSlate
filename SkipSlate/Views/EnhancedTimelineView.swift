@@ -147,7 +147,7 @@ struct EnhancedTimelineView: View {
                                                     NSCursor.resizeUpDown.push()
                                                 } else {
                                                     NSCursor.pop()
-                                                }
+                                        }
                                             }
                                             .gesture(
                                                 DragGesture()
@@ -157,8 +157,8 @@ struct EnhancedTimelineView: View {
                                                         projectViewModel.trackHeights[track.id] = newHeight
                                                     }
                                             )
-                                    }
                                 }
+                            }
                             }
                             .frame(width: contentWidth, alignment: .leading)
                         }
