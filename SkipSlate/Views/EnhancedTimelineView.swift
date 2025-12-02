@@ -24,6 +24,17 @@ struct EnhancedTimelineView: View {
     @State private var dragOffset: CGFloat = 0
     var selectedTool: EditingTool = .select // Tool selection from parent (for cursor changes)
     
+    // Track height constants
+    private let defaultTrackHeight: CGFloat = 60
+    private let minTrackHeight: CGFloat = 40
+    private let maxTrackHeight: CGFloat = 200
+    private let baseTimelineWidth: CGFloat = 1000
+    
+    // Get height for a track (with default fallback)
+    private func trackHeight(for trackID: UUID) -> CGFloat {
+        return projectViewModel.trackHeights[trackID] ?? defaultTrackHeight
+    }
+    
     var body: some View {
         VStack(spacing: 0) {
             // Timeline header with zoom controls
@@ -58,107 +69,118 @@ struct EnhancedTimelineView: View {
             
             Divider()
             
-            // Segment blocks
+            // Time ruler (only show if we have segments)
+            if !projectViewModel.segments.isEmpty && totalDuration > 0 {
+                GeometryReader { geometry in
+                    let baseTimelineWidth: CGFloat = 1000
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        TimeRulerView(
+                            playerViewModel: projectViewModel.playerVM,
+                            totalDuration: totalDuration,
+                            zoomLevel: zoomLevel,
+                            baseTimelineWidth: baseTimelineWidth,
+                            onSeek: { time in
+                                projectViewModel.playerVM.seek(to: time, precise: true)
+                            }
+                        )
+                        .frame(width: baseTimelineWidth * zoomLevel.scale)
+                    }
+                }
+                .frame(height: 30)
+                
+                Divider()
+            }
+            
+            // Multi-track timeline
             if projectViewModel.segments.isEmpty {
                 VStack {
                     Spacer()
-                    Text("No segments yet. Go back to Auto Edit or add clips.")
+                    Text("No segments yet. Import media and run Auto Edit.")
                         .foregroundColor(AppColors.secondaryText)
-                        .font(.caption)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-            } else if enabledSegments.isEmpty {
-                VStack {
-                    Spacer()
-                    Text("All segments are disabled; nothing to play.")
-                        .foregroundColor(AppColors.secondaryText.opacity(0.7))
                         .font(.caption)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
             } else {
                 GeometryReader { geometry in
-                    let baseTimelineWidth: CGFloat = 1000
                     let contentWidth = baseTimelineWidth * zoomLevel.scale
+                    let availableHeight = geometry.size.height
                     
                     ZStack(alignment: .leading) {
-                        
-                        // Segment blocks with drag-and-drop reordering
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            HStack(spacing: 2) {
-                                ForEach(Array(projectViewModel.segments.enumerated()), id: \.element.id) { index, segment in
-                                    EnhancedSegmentBlock(
-                                        segment: segment,
-                                        index: index,
-                                        compositionStart: projectViewModel.compositionStart(for: segment),
-                                        isSelected: projectViewModel.selectedSegment?.id == segment.id,
-                                        isPlaying: isSegmentPlaying(segment),
-                                        totalDuration: totalDuration,
-                                        zoomLevel: zoomLevel,
-                                        projectViewModel: projectViewModel,
-                                        onSelect: {
-                                            projectViewModel.selectedSegment = segment
-                                            projectViewModel.seekToSegment(segment)
-                                        },
-                                        onToggle: {
-                                            projectViewModel.toggleSegmentEnabled(segment)
-                                        },
-                                        onDelete: {
-                                            projectViewModel.deleteSegment(segment)
-                                        },
-                                        onTrimStart: { newStart in
-                                            trimSegment(segment, start: newStart, end: nil)
-                                        },
-                                        onTrimEnd: { newEnd in
-                                            trimSegment(segment, start: nil, end: newEnd)
-                                        },
-                                        onDrag: { offset in
-                                            // Handle drag for reordering
-                                            handleSegmentDrag(segment: segment, offset: offset)
-                                        },
-                                        onMove: { from, to in
-                                            // Handle move for reordering
-                                            projectViewModel.reorderSegments(from: IndexSet(integer: from), to: to)
-                                        },
-                                        selectedTool: selectedTool
-                                    )
-                                    .onDrag {
-                                        // Create drag item for reordering - only when Select tool is active
-                                        guard selectedTool == .select else {
-                                            return NSItemProvider()
-                                        }
-                                        let itemProvider = NSItemProvider()
-                                        itemProvider.registerDataRepresentation(forTypeIdentifier: "public.text", visibility: .all) { completion in
-                                            let data = segment.id.uuidString.data(using: .utf8) ?? Data()
-                                            completion(data, nil)
-                                            return nil
-                                        }
-                                        return itemProvider
-                                    }
-                                    .onDrop(of: [.text], delegate: SegmentDropDelegate(
-                                        segment: segment,
-                                        segments: projectViewModel.segments,
-                                        onMove: { from, to in
-                                            // Only allow reordering when Select tool is active
-                                            guard selectedTool == .select else { return }
-                                            projectViewModel.reorderSegments(from: IndexSet(integer: from), to: to)
-                                        }
-                                    ))
+                        // Global cursor update based on selected tool
+                        Color.clear
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .onHover { hovering in
+                                if hovering {
+                                    selectedTool.cursor.push()
+                                } else {
+                                    NSCursor.pop()
                                 }
                             }
-                            .padding(.horizontal)
+                        
+                        // Scrollable track content
+                        ScrollView(.horizontal, showsIndicators: true) {
+                            VStack(spacing: 0) {
+                                ForEach(Array(projectViewModel.tracks.enumerated()), id: \.element.id) { index, track in
+                                    let currentTrackHeight = trackHeight(for: track.id)
+                                    
+                                    TimelineTrackView(
+                                        track: track,
+                                        projectViewModel: projectViewModel,
+                                        playerViewModel: projectViewModel.playerVM,
+                                        totalDuration: totalDuration,
+                                        zoomLevel: zoomLevel,
+                                        trackHeight: currentTrackHeight,
+                                        timelineWidth: contentWidth
+                                    )
+                                    .frame(height: currentTrackHeight)
+                                    
+                                    // Resizable divider between tracks
+                                    if index < projectViewModel.tracks.count - 1 {
+                                        Rectangle()
+                                            .fill(Color.clear)
+                                            .frame(height: 4)
+                                            .contentShape(Rectangle())
+                                            .background(Color(white: 0.3))
+                                            .onHover { hovering in
+                                                if hovering {
+                                                    NSCursor.resizeUpDown.push()
+                                                } else {
+                                                    NSCursor.pop()
+                                                }
+                                            }
+                                            .gesture(
+                                                DragGesture()
+                                                    .onChanged { value in
+                                                        let delta = value.translation.height
+                                                        let newHeight = max(minTrackHeight, min(maxTrackHeight, currentTrackHeight + delta))
+                                                        projectViewModel.trackHeights[track.id] = newHeight
+                                                    }
+                                            )
+                                    }
+                                }
+                            }
                             .frame(width: contentWidth, alignment: .leading)
                         }
                         
-                        // Playhead indicator overlay - positioned relative to scrollable content
-                        // Observe playerVM directly for real-time updates
+                        // Playhead indicator (spans all tracks)
                         if totalDuration > 0 {
+                            // Convert EditingTool to TimelineTool for PlayheadIndicator
+                            let timelineTool: TimelineTool = {
+                                switch selectedTool {
+                                case .select: return .cursor
+                                case .cut: return .cut
+                                case .trim: return .trim
+                                }
+                            }()
+                            
                             PlayheadIndicator(
                                 playerVM: projectViewModel.playerVM,
                                 totalDuration: totalDuration,
                                 timelineWidth: contentWidth,
-                                zoomLevel: zoomLevel
+                                zoomLevel: zoomLevel,
+                                trackHeight: availableHeight,
+                                selectedTool: timelineTool
                             )
                         }
                     }
@@ -175,8 +197,15 @@ struct EnhancedTimelineView: View {
         projectViewModel.segments.filter { $0.enabled }
     }
     
+    // Calculate total duration from all enabled segments across all tracks
+    // Uses compositionStartTime + duration to find the maximum end time
     private var totalDuration: Double {
-        enabledSegments.reduce(0) { $0 + $1.duration }
+        let enabledSegments = projectViewModel.segments.filter { $0.enabled }
+        guard !enabledSegments.isEmpty else { return 0 }
+        
+        // Find the maximum end time (compositionStartTime + duration)
+        let maxEndTime = enabledSegments.map { $0.compositionStartTime + $0.duration }.max() ?? 0
+        return maxEndTime
     }
     
     private func isSegmentPlaying(_ segment: Segment) -> Bool {

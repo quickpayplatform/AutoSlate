@@ -372,8 +372,8 @@ extension DaVinciStyleLayout {
             Divider()
                 .background(Color(white: 0.15))
             
-            // Timeline content - using clean minimal timeline
-            TimelineView(projectViewModel: projectViewModel)
+            // Timeline content - using EnhancedTimelineView as primary timeline
+            EnhancedTimelineView(projectViewModel: projectViewModel, selectedTool: .select)
         }
     }
 }

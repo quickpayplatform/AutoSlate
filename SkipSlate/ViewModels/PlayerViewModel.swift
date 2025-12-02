@@ -633,8 +633,21 @@ class PlayerViewModel: NSObject, ObservableObject {
             videoTracksByTrackID[track.id] = videoTrack
         }
         
-        // Create a single audio track for mixing all audio
-        guard let audioTrack = composition.addMutableTrack(
+        // Create audio tracks for each audio track in the timeline (A1, A2, etc.)
+        var audioTracksByTrackID: [UUID: AVMutableCompositionTrack] = [:]
+        for track in project.tracks where track.type == .audio {
+            guard let audioTrack = composition.addMutableTrack(
+                withMediaType: .audio,
+                preferredTrackID: kCMPersistentTrackID_Invalid
+            ) else {
+                throw NSError(domain: "PlayerViewModel", code: -1)
+            }
+            audioTracksByTrackID[track.id] = audioTrack
+        }
+        
+        // Also create a single mixed audio track for video segments with audio
+        // This is used for audio from video clips (not audio-only clips on audio tracks)
+        guard let mixedAudioTrack = composition.addMutableTrack(
             withMediaType: .audio,
             preferredTrackID: kCMPersistentTrackID_Invalid
         ) else {
@@ -855,10 +868,10 @@ class PlayerViewModel: NSObject, ObservableObject {
                                             start: .zero,
                                             duration: insertDuration
                                         )
-                                        try audioTrack.insertTimeRange(
+                                        try mixedAudioTrack.insertTimeRange(
                                             audioTimeRange,
                                             of: sourceAudioTrack,
-                                            at: .zero
+                                            at: CMTime.zero
                                         )
                                         print("SkipSlate: Inserted audio track for image-only composition, duration: \(CMTimeGetSeconds(insertDuration))s, from clip: \(audioClip.fileName)")
                                     } else {
@@ -950,100 +963,125 @@ class PlayerViewModel: NSObject, ObservableObject {
                 }
             }
             
-            // Insert audio if available - CRITICAL FIX
-            // Try to load audio even if hasAudioTrack=false (fallback for detection issues)
-            // First try if hasAudioTrack=true, then try as fallback if hasAudioTrack=false
-            var shouldTryAudio = clip.hasAudioTrack
-            
-            // FALLBACK: If clip is marked as videoOnly but we haven't tried audio yet, try it anyway
-            // This handles cases where MediaImportService incorrectly detected no audio
-            if !shouldTryAudio && clip.type == .videoOnly {
-                print("SkipSlate: Clip '\(clip.fileName)' marked as videoOnly, but attempting audio load as fallback...")
-                shouldTryAudio = true
-            }
-            
-            if shouldTryAudio {
-                do {
-                    let sourceAudioTracks = try await asset.loadTracks(withMediaType: .audio)
-                    print("SkipSlate: Clip '\(clip.fileName)' has \(sourceAudioTracks.count) audio track(s) (hasAudioTrack=\(clip.hasAudioTrack), attempting load)")
-                    
-                    if sourceAudioTracks.isEmpty {
-                        if clip.hasAudioTrack {
-                            print("SkipSlate: ⚠⚠⚠ WARNING - Clip marked as hasAudioTrack=true but no audio tracks found!")
-                            print("SkipSlate: This may indicate a mismatch between import detection and actual asset.")
-                        } else {
-                            print("SkipSlate: Fallback audio load confirmed no audio tracks (clip correctly marked as videoOnly)")
+            // Insert audio based on track type and clip type
+            // - Audio-only clips on audio tracks → insert into that audio track
+            // - Video clips with audio → insert into mixed audio track
+            if clip.type == .audioOnly && track.type == .audio {
+                // Audio-only clip on audio track - insert into the track's audio composition track
+                if let compositionAudioTrack = audioTracksByTrackID[track.id] {
+                    do {
+                        let sourceAudioTracks = try await asset.loadTracks(withMediaType: .audio)
+                        if let sourceAudioTrack = sourceAudioTracks.first {
+                            let trackTimeRange = try await sourceAudioTrack.load(.timeRange)
+                            let sourceDuration = trackTimeRange.duration
+                            let sourceStartTime = CMTime(seconds: segment.sourceStart, preferredTimescale: timescale)
+                            let actualDuration = min(segmentDuration, sourceDuration)
+                            let sourceTimeRange = CMTimeRange(start: sourceStartTime, duration: actualDuration)
+                            
+                            try compositionAudioTrack.insertTimeRange(
+                                sourceTimeRange,
+                                of: sourceAudioTrack,
+                                at: compositionStart
+                            )
+                            print("SkipSlate: ✅ Inserted audio-only segment into audio track \(track.name) at \(CMTimeGetSeconds(compositionStart))s")
                         }
-                    } else if let sourceAudioTrack = sourceAudioTracks.first {
-                    // Load track properties to ensure they're ready
-                    let trackTimeRange = try await sourceAudioTrack.load(.timeRange)
-                    let sourceDuration = trackTimeRange.duration
-                    let sourceStartTime = CMTime(seconds: segment.sourceStart, preferredTimescale: timescale)
-                    
-                    // Verify source duration is valid
-                    guard sourceDuration.isValid && sourceDuration > .zero else {
-                        print("SkipSlate: ⚠⚠⚠ ERROR - Source audio track has invalid duration: \(CMTimeGetSeconds(sourceDuration))s")
-                        continue
+                    } catch {
+                        print("SkipSlate: Error inserting audio-only segment: \(error)")
                     }
-                    
-                    // Clamp to available duration
-                    let actualDuration = min(segmentDuration, sourceDuration)
-                    let sourceTimeRange = CMTimeRange(
-                        start: sourceStartTime,
-                        duration: actualDuration
-                    )
-                    
-                    // Verify time range is valid
-                    guard sourceTimeRange.isValid && actualDuration > .zero else {
-                        print("SkipSlate: ⚠⚠⚠ ERROR - Invalid audio time range calculated")
-                        continue
-                    }
-                    
-                    print("SkipSlate: Inserting audio at composition time \(CMTimeGetSeconds(compositionStart))s")
-                    print("SkipSlate: Source audio track duration: \(CMTimeGetSeconds(sourceDuration))s")
-                    print("SkipSlate: Requested segment duration: \(CMTimeGetSeconds(segmentDuration))s")
-                    print("SkipSlate: Actual duration to insert: \(CMTimeGetSeconds(actualDuration))s")
-                    print("SkipSlate: Source time range: \(CMTimeGetSeconds(sourceTimeRange.start))-\(CMTimeGetSeconds(CMTimeRangeGetEnd(sourceTimeRange)))s")
-                    
-                    // Verify audio track is still valid
-                    guard audioTrack.trackID != kCMPersistentTrackID_Invalid else {
-                        print("SkipSlate: ⚠⚠⚠ ERROR - Audio track is invalid!")
-                        continue
-                    }
-                    
-                    // CRITICAL: Insert audio with error handling
-                    try audioTrack.insertTimeRange(
-                        sourceTimeRange,
-                        of: sourceAudioTrack,
-                        at: compositionStart
-                    )
-                    
-                    // VERIFY audio was actually inserted by checking the track
-                    let insertedTrackTimeRange = audioTrack.timeRange
-                    let insertedDuration = CMTimeGetSeconds(insertedTrackTimeRange.duration)
-                    print("SkipSlate: ✓✓✓ Successfully inserted audio segment from '\(clip.fileName)'")
-                    print("SkipSlate: Audio track now has timeRange: \(CMTimeGetSeconds(insertedTrackTimeRange.start))-\(CMTimeGetSeconds(CMTimeRangeGetEnd(insertedTrackTimeRange)))s")
-                    print("SkipSlate: Audio track total duration after insert: \(insertedDuration)s")
-                    
-                    if insertedDuration == 0 {
-                        print("SkipSlate: ⚠⚠⚠ CRITICAL: Audio track has ZERO duration after insertion!")
-                    } else {
-                        print("SkipSlate: ✓ Audio insertion verified - track has \(insertedDuration)s of audio")
-                    }
-                    }
-                } catch {
-                    print("SkipSlate: ✗✗✗ CRITICAL ERROR inserting audio segment from '\(clip.fileName)': \(error)")
-                    print("SkipSlate: Error details: \(error.localizedDescription)")
-                    if let nsError = error as NSError? {
-                        print("SkipSlate: Error domain: \(nsError.domain), code: \(nsError.code)")
-                        print("SkipSlate: Error userInfo: \(nsError.userInfo)")
-                    }
-                    // Continue to next segment - don't fail entire composition
                 }
-            } else {
-                // Only log if we're not attempting fallback
-                if clip.type != .videoOnly {
-                    print("SkipSlate: Clip '\(clip.fileName)' has no audio track (hasAudioTrack=false, type: \(clip.type))")
+            } else if clip.hasAudioTrack && (track.type == .videoPrimary || track.type == .videoOverlay) {
+                // Video clip with audio - insert into mixed audio track
+                // Try to load audio even if hasAudioTrack=false (fallback for detection issues)
+                var shouldTryAudio = clip.hasAudioTrack
+                
+                // FALLBACK: If clip is marked as videoOnly but we haven't tried audio yet, try it anyway
+                if !shouldTryAudio && clip.type == .videoOnly {
+                    print("SkipSlate: Clip '\(clip.fileName)' marked as videoOnly, but attempting audio load as fallback...")
+                    shouldTryAudio = true
+                }
+                
+                if shouldTryAudio {
+                    do {
+                        let sourceAudioTracks = try await asset.loadTracks(withMediaType: .audio)
+                        print("SkipSlate: Clip '\(clip.fileName)' has \(sourceAudioTracks.count) audio track(s) (hasAudioTrack=\(clip.hasAudioTrack), attempting load)")
+                        
+                        if sourceAudioTracks.isEmpty {
+                            if clip.hasAudioTrack {
+                                print("SkipSlate: ⚠⚠⚠ WARNING - Clip marked as hasAudioTrack=true but no audio tracks found!")
+                            } else {
+                                print("SkipSlate: Fallback audio load confirmed no audio tracks (clip correctly marked as videoOnly)")
+                            }
+                        } else if let sourceAudioTrack = sourceAudioTracks.first {
+                            // Load track properties to ensure they're ready
+                            let trackTimeRange = try await sourceAudioTrack.load(.timeRange)
+                            let sourceDuration = trackTimeRange.duration
+                            let sourceStartTime = CMTime(seconds: segment.sourceStart, preferredTimescale: timescale)
+                            
+                            // Verify source duration is valid
+                            guard sourceDuration.isValid && sourceDuration > .zero else {
+                                print("SkipSlate: ⚠⚠⚠ ERROR - Source audio track has invalid duration: \(CMTimeGetSeconds(sourceDuration))s")
+                                continue
+                            }
+                            
+                            // Clamp to available duration
+                            let actualDuration = min(segmentDuration, sourceDuration)
+                            let sourceTimeRange = CMTimeRange(
+                                start: sourceStartTime,
+                                duration: actualDuration
+                            )
+                            
+                            // Verify time range is valid
+                            guard sourceTimeRange.isValid && actualDuration > .zero else {
+                                print("SkipSlate: ⚠⚠⚠ ERROR - Invalid audio time range calculated")
+                                continue
+                            }
+                            
+                            print("SkipSlate: Inserting audio at composition time \(CMTimeGetSeconds(compositionStart))s")
+                            print("SkipSlate: Source audio track duration: \(CMTimeGetSeconds(sourceDuration))s")
+                            print("SkipSlate: Requested segment duration: \(CMTimeGetSeconds(segmentDuration))s")
+                            print("SkipSlate: Actual duration to insert: \(CMTimeGetSeconds(actualDuration))s")
+                            print("SkipSlate: Source time range: \(CMTimeGetSeconds(sourceTimeRange.start))-\(CMTimeGetSeconds(CMTimeRangeGetEnd(sourceTimeRange)))s")
+                            
+                            // Verify audio track is still valid
+                            guard mixedAudioTrack.trackID != kCMPersistentTrackID_Invalid else {
+                                print("SkipSlate: ⚠⚠⚠ ERROR - Mixed audio track is invalid!")
+                                continue
+                            }
+                            
+                            // CRITICAL: Insert audio with error handling
+                            try mixedAudioTrack.insertTimeRange(
+                                sourceTimeRange,
+                                of: sourceAudioTrack,
+                                at: compositionStart
+                            )
+                            
+                            // VERIFY audio was actually inserted by checking the track
+                            let insertedTrackTimeRange = mixedAudioTrack.timeRange
+                            let insertedDuration = CMTimeGetSeconds(insertedTrackTimeRange.duration)
+                            print("SkipSlate: ✓✓✓ Successfully inserted audio segment from '\(clip.fileName)'")
+                            print("SkipSlate: Mixed audio track now has timeRange: \(CMTimeGetSeconds(insertedTrackTimeRange.start))-\(CMTimeGetSeconds(CMTimeRangeGetEnd(insertedTrackTimeRange)))s")
+                            print("SkipSlate: Mixed audio track total duration after insert: \(insertedDuration)s")
+                            
+                            if insertedDuration == 0 {
+                                print("SkipSlate: ⚠⚠⚠ CRITICAL: Mixed audio track has ZERO duration after insertion!")
+                            } else {
+                                print("SkipSlate: ✓ Audio insertion verified - track has \(insertedDuration)s of audio")
+                            }
+                        }
+                    } catch {
+                        print("SkipSlate: ✗✗✗ CRITICAL ERROR inserting audio segment from '\(clip.fileName)': \(error)")
+                        print("SkipSlate: Error details: \(error.localizedDescription)")
+                        if let nsError = error as NSError? {
+                            print("SkipSlate: Error domain: \(nsError.domain), code: \(nsError.code)")
+                            print("SkipSlate: Error userInfo: \(nsError.userInfo)")
+                        }
+                        // Continue to next segment - don't fail entire composition
+                    }
+                } else {
+                    // Only log if we're not attempting fallback
+                    if clip.type != .videoOnly {
+                        print("SkipSlate: Clip '\(clip.fileName)' has no audio track (hasAudioTrack=false, type: \(clip.type))")
+                    }
                 }
             }
             }
@@ -1064,15 +1102,16 @@ class PlayerViewModel: NSObject, ObservableObject {
                         // Use the composition's total duration (calculated from segments)
                         let insertDuration = min(totalDuration, musicDuration)
                         
-                        // Check if audio track already has content
-                        let existingAudioDuration = CMTimeGetSeconds(audioTrack.timeRange.duration)
+                        // Insert music into the mixed audio track (for video projects)
+                        // Check if mixed audio track already has content
+                        let existingAudioDuration = CMTimeGetSeconds(mixedAudioTrack.timeRange.duration)
                         if existingAudioDuration == 0 {
                             // Audio track is empty, insert music from the start
                             let audioTimeRange = CMTimeRange(
                                 start: .zero,
                                 duration: insertDuration
                             )
-                            try audioTrack.insertTimeRange(
+                            try mixedAudioTrack.insertTimeRange(
                                 audioTimeRange,
                                 of: sourceAudioTrack,
                                 at: .zero
@@ -1087,7 +1126,7 @@ class PlayerViewModel: NSObject, ObservableObject {
                                 duration: insertDuration
                             )
                             // Insert music track (will mix with any existing audio)
-                            try audioTrack.insertTimeRange(
+                            try mixedAudioTrack.insertTimeRange(
                                 audioTimeRange,
                                 of: sourceAudioTrack,
                                 at: .zero
