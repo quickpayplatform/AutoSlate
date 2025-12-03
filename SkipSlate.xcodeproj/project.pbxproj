@@ -62,6 +62,28 @@
 		411422E32ED797090084514E /* AudioEditingStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422DE2ED797090084514E /* AudioEditingStepView.swift */; };
 		411422E42ED797090084514E /* ColorGradingStepView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422DF2ED797090084514E /* ColorGradingStepView.swift */; };
 		411422E52ED797090084514E /* DaVinciStyleLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = 411422E02ED797090084514E /* DaVinciStyleLayout.swift */; };
+		417197012EE0B1D200206969 /* TimelineTrack.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197002EE0B1CD00206969 /* TimelineTrack.swift */; };
+		417197032EE0B20B00206969 /* TimelineTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197022EE0B20400206969 /* TimelineTool.swift */; };
+		417197052EE0B23A00206969 /* StockClip.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197042EE0B23600206969 /* StockClip.swift */; };
+		417197072EE0B26600206969 /* SegmentIDTransfer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197062EE0B25E00206969 /* SegmentIDTransfer.swift */; };
+		4171970B2EE0B2B500206969 /* VideoStabilizationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4171970A2EE0B2AD00206969 /* VideoStabilizationService.swift */; };
+		4171970D2EE0B2E300206969 /* StockService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4171970C2EE0B2DF00206969 /* StockService.swift */; };
+		4171970F2EE0B31E00206969 /* PexelsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4171970E2EE0B31500206969 /* PexelsService.swift */; };
+		417197112EE0B36100206969 /* CinematicSegmentSelector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197102EE0B35900206969 /* CinematicSegmentSelector.swift */; };
+		417197132EE0B39500206969 /* CinematicScoringEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197122EE0B38C00206969 /* CinematicScoringEngine.swift */; };
+		417197152EE0B41800206969 /* TealProgressViewStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197142EE0B40B00206969 /* TealProgressViewStyle.swift */; };
+		417197172EE0B44300206969 /* SegmentManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197162EE0B43F00206969 /* SegmentManager.swift */; };
+		417197192EE0B46B00206969 /* MenuActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197182EE0B46600206969 /* MenuActions.swift */; };
+		4171971B2EE0B4A300206969 /* ToolSlate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4171971A2EE0B49F00206969 /* ToolSlate.swift */; };
+		4171971D2EE0B4F300206969 /* RemoveTrackButton.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4171971C2EE0B4ED00206969 /* RemoveTrackButton.swift */; };
+		4171971F2EE0B51F00206969 /* SegmentPreviewWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4171971E2EE0B51800206969 /* SegmentPreviewWindow.swift */; };
+		417197212EE0B55F00206969 /* MediaInspector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197202EE0B55A00206969 /* MediaInspector.swift */; };
+		417197232EE0B58D00206969 /* TimelineTrackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197222EE0B58800206969 /* TimelineTrackView.swift */; };
+		417197252EE0B5B100206969 /* TimelineRulerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197242EE0B5AB00206969 /* TimelineRulerView.swift */; };
+		4171975D2EE0C08200206969 /* TimelineModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4171975C2EE0C07800206969 /* TimelineModel.swift */; };
+		4171975F2EE0C0CA00206969 /* CompositionEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4171975E2EE0C0C000206969 /* CompositionEngine.swift */; };
+		417197612EE0C16800206969 /* TrackContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197602EE0C15800206969 /* TrackContentView.swift */; };
+		417197632EE0C19A00206969 /* TrackHeadersColumn.swift in Sources */ = {isa = PBXBuildFile; fileRef = 417197622EE0C18400206969 /* TrackHeadersColumn.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -141,27 +163,31 @@
 		411422DF2ED797090084514E /* ColorGradingStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorGradingStepView.swift; sourceTree = "<group>"; };
 		411422E02ED797090084514E /* DaVinciStyleLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DaVinciStyleLayout.swift; sourceTree = "<group>"; };
 		411422E12ED797090084514E /* EditStepView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditStepView.swift; sourceTree = "<group>"; };
+		417197002EE0B1CD00206969 /* TimelineTrack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineTrack.swift; sourceTree = "<group>"; };
+		417197022EE0B20400206969 /* TimelineTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineTool.swift; sourceTree = "<group>"; };
+		417197042EE0B23600206969 /* StockClip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockClip.swift; sourceTree = "<group>"; };
+		417197062EE0B25E00206969 /* SegmentIDTransfer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentIDTransfer.swift; sourceTree = "<group>"; };
+		4171970A2EE0B2AD00206969 /* VideoStabilizationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoStabilizationService.swift; sourceTree = "<group>"; };
+		4171970C2EE0B2DF00206969 /* StockService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockService.swift; sourceTree = "<group>"; };
+		4171970E2EE0B31500206969 /* PexelsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PexelsService.swift; sourceTree = "<group>"; };
+		417197102EE0B35900206969 /* CinematicSegmentSelector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicSegmentSelector.swift; sourceTree = "<group>"; };
+		417197122EE0B38C00206969 /* CinematicScoringEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CinematicScoringEngine.swift; sourceTree = "<group>"; };
+		417197142EE0B40B00206969 /* TealProgressViewStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TealProgressViewStyle.swift; sourceTree = "<group>"; };
+		417197162EE0B43F00206969 /* SegmentManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentManager.swift; sourceTree = "<group>"; };
+		417197182EE0B46600206969 /* MenuActions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuActions.swift; sourceTree = "<group>"; };
+		4171971A2EE0B49F00206969 /* ToolSlate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ToolSlate.swift; sourceTree = "<group>"; };
+		4171971C2EE0B4ED00206969 /* RemoveTrackButton.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoveTrackButton.swift; sourceTree = "<group>"; };
+		4171971E2EE0B51800206969 /* SegmentPreviewWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SegmentPreviewWindow.swift; sourceTree = "<group>"; };
+		417197202EE0B55A00206969 /* MediaInspector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaInspector.swift; sourceTree = "<group>"; };
+		417197222EE0B58800206969 /* TimelineTrackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineTrackView.swift; sourceTree = "<group>"; };
+		417197242EE0B5AB00206969 /* TimelineRulerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineRulerView.swift; sourceTree = "<group>"; };
+		4171975C2EE0C07800206969 /* TimelineModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TimelineModel.swift; sourceTree = "<group>"; };
+		4171975E2EE0C0C000206969 /* CompositionEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompositionEngine.swift; sourceTree = "<group>"; };
+		417197602EE0C15800206969 /* TrackContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackContentView.swift; sourceTree = "<group>"; };
+		417197622EE0C18400206969 /* TrackHeadersColumn.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackHeadersColumn.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		41007E3B2EDF977100538886 /* Exceptions for "SkipSlate" folder in "SkipSlate" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				ViewModels/Untitled.swift,
-			);
-			target = 411421DB2ED6B7090084514E /* SkipSlate */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		411421DE2ED6B7090084514E /* SkipSlate */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				41007E3B2EDF977100538886 /* Exceptions for "SkipSlate" folder in "SkipSlate" target */,
-			);
-			path = SkipSlate;
-			sourceTree = "<group>";
-		};
 		411421ED2ED6B70B0084514E /* SkipSlateTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SkipSlateTests;
@@ -170,6 +196,11 @@
 		411421F72ED6B70B0084514E /* SkipSlateUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = SkipSlateUITests;
+			sourceTree = "<group>";
+		};
+		417197262EE0B5D900206969 /* MediaImport */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MediaImport;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -202,7 +233,6 @@
 		411421D32ED6B7090084514E = {
 			isa = PBXGroup;
 			children = (
-				411421DE2ED6B7090084514E /* SkipSlate */,
 				411421ED2ED6B70B0084514E /* SkipSlateTests */,
 				411421F72ED6B70B0084514E /* SkipSlateUITests */,
 				411421DD2ED6B7090084514E /* Products */,
@@ -226,10 +256,14 @@
 				411422792ED6BDC80084514E /* AspectRatio.swift */,
 				4114227A2ED6BDC80084514E /* AudioSettings.swift */,
 				411422C42ED6CFBD0084514E /* AutoEditSettings.swift */,
+				417197002EE0B1CD00206969 /* TimelineTrack.swift */,
+				417197042EE0B23600206969 /* StockClip.swift */,
+				417197062EE0B25E00206969 /* SegmentIDTransfer.swift */,
 				4114227B2ED6BDC80084514E /* ColorSettings.swift */,
 				4114227C2ED6BDC80084514E /* ExportFormat.swift */,
 				4114227D2ED6BDC80084514E /* MediaClip.swift */,
 				411422D22ED754890084514E /* HighlightReelSettings.swift */,
+				417197022EE0B20400206969 /* TimelineTool.swift */,
 				4114227E2ED6BDC80084514E /* Project.swift */,
 				4114227F2ED6BDC80084514E /* ProjectType.swift */,
 				411422802ED6BDC80084514E /* ResolutionPreset.swift */,
@@ -243,9 +277,15 @@
 			children = (
 				411422832ED6BDC80084514E /* AudioService.swift */,
 				411422842ED6BDC80084514E /* AutoEditService.swift */,
+				4171970E2EE0B31500206969 /* PexelsService.swift */,
 				411422C62ED6D58D0084514E /* TransitionService.swift */,
 				411422D42ED754AA0084514E /* HighlightReelMusicAnalyzer.swift */,
+				417197122EE0B38C00206969 /* CinematicScoringEngine.swift */,
+				4171975E2EE0C0C000206969 /* CompositionEngine.swift */,
 				411422D52ED754AA0084514E /* HighlightReelService.swift */,
+				4171970C2EE0B2DF00206969 /* StockService.swift */,
+				417197102EE0B35900206969 /* CinematicSegmentSelector.swift */,
+				4171970A2EE0B2AD00206969 /* VideoStabilizationService.swift */,
 				411422D62ED754AA0084514E /* HighlightReelVisualAnalyzer.swift */,
 				411422D02ED74D570084514E /* FrameAnalysisService.swift */,
 				411422C22ED6CFB30084514E /* AudioAnalysisEngine.swift */,
@@ -260,7 +300,10 @@
 			isa = PBXGroup;
 			children = (
 				411422892ED6BDC80084514E /* ColorPalette.swift */,
+				417197162EE0B43F00206969 /* SegmentManager.swift */,
+				417197182EE0B46600206969 /* MenuActions.swift */,
 				411422B62ED6C3D70084514E /* AppColors.swift */,
+				417197142EE0B40B00206969 /* TealProgressViewStyle.swift */,
 				411422C82ED6DC8A0084514E /* AutoEditTheme.swift */,
 			);
 			path = Utils;
@@ -271,7 +314,9 @@
 			children = (
 				4114228B2ED6BDC80084514E /* AppViewModel.swift */,
 				4114228C2ED6BDC80084514E /* PlayerViewModel.swift */,
+				4171975C2EE0C07800206969 /* TimelineModel.swift */,
 				41007E3E2EDF97D300538886 /* TimelineViewModel.swift */,
+				4171971A2EE0B49F00206969 /* ToolSlate.swift */,
 				4114228D2ED6BDC80084514E /* ProjectViewModel.swift */,
 			);
 			path = ViewModels;
@@ -291,9 +336,16 @@
 				41007E3C2EDF979E00538886 /* TimeHeaderView.swift */,
 				411422CA2ED6FD630084514E /* OptionChip.swift */,
 				411422DC2ED767CF0084514E /* PlayheadIndicator.swift */,
+				417197602EE0C15800206969 /* TrackContentView.swift */,
 				41007E422EDF980A00538886 /* AddTrackButton.swift */,
+				417197202EE0B55A00206969 /* MediaInspector.swift */,
 				411422DA2ED7627B0084514E /* ColorWheelComponents.swift */,
+				417197222EE0B58800206969 /* TimelineTrackView.swift */,
+				417197242EE0B5AB00206969 /* TimelineRulerView.swift */,
+				417197622EE0C18400206969 /* TrackHeadersColumn.swift */,
 				411422912ED6BDC80084514E /* PreviewPanel.swift */,
+				4171971E2EE0B51800206969 /* SegmentPreviewWindow.swift */,
+				4171971C2EE0B4ED00206969 /* RemoveTrackButton.swift */,
 				411422B82ED6CC580084514E /* AutoEditSettingsStepView.swift */,
 				411422B92ED6CC580084514E /* ExportStepView.swift */,
 				411422BA2ED6CC580084514E /* GlobalStepIndicator.swift */,
@@ -303,6 +355,7 @@
 				411422922ED6BDC80084514E /* ProjectSetupWizardView.swift */,
 				411422932ED6BDC80084514E /* TimelineView.swift */,
 				411422942ED6BDC80084514E /* WelcomeView.swift */,
+				417197262EE0B5D900206969 /* MediaImport */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -339,7 +392,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				411421DE2ED6B7090084514E /* SkipSlate */,
+				417197262EE0B5D900206969 /* MediaImport */,
 			);
 			name = SkipSlate;
 			packageProductDependencies = (
@@ -472,6 +525,8 @@
 				411422D82ED754AA0084514E /* HighlightReelService.swift in Sources */,
 				411422D92ED754AA0084514E /* HighlightReelMusicAnalyzer.swift in Sources */,
 				41007E412EDF980000538886 /* TrackHeaderView.swift in Sources */,
+				417197212EE0B55F00206969 /* MediaInspector.swift in Sources */,
+				4171970F2EE0B31E00206969 /* PexelsService.swift in Sources */,
 				411422C72ED6D58D0084514E /* TransitionService.swift in Sources */,
 				4114229C2ED6BDC80084514E /* AspectRatio.swift in Sources */,
 				4114229D2ED6BDC80084514E /* SkipSlateApp.swift in Sources */,
@@ -483,27 +538,40 @@
 				411422A12ED6BDC80084514E /* AudioSettings.swift in Sources */,
 				411422A22ED6BDC80084514E /* AppViewModel.swift in Sources */,
 				411422A32ED6BDC80084514E /* Project.swift in Sources */,
+				417197192EE0B46B00206969 /* MenuActions.swift in Sources */,
 				411422A42ED6BDC80084514E /* EditorView.swift in Sources */,
+				417197132EE0B39500206969 /* CinematicScoringEngine.swift in Sources */,
 				41007E3F2EDF97EA00538886 /* TimelineViewModel.swift in Sources */,
 				41007E3D2EDF97A800538886 /* TimeHeaderView.swift in Sources */,
+				417197632EE0C19A00206969 /* TrackHeadersColumn.swift in Sources */,
+				417197232EE0B58D00206969 /* TimelineTrackView.swift in Sources */,
 				41007E432EDF981100538886 /* AddTrackButton.swift in Sources */,
 				411422A52ED6BDC80084514E /* MediaImportService.swift in Sources */,
 				411422A62ED6BDC80084514E /* ColorSettings.swift in Sources */,
+				4171971F2EE0B51F00206969 /* SegmentPreviewWindow.swift in Sources */,
 				411422CF2ED74D280084514E /* PlayerHostingView.swift in Sources */,
 				411422A72ED6BDC80084514E /* MediaClip.swift in Sources */,
 				411422A82ED6BDC80084514E /* RawDecodeService.swift in Sources */,
 				411422A92ED6BDC80084514E /* ExportFormat.swift in Sources */,
+				417197112EE0B36100206969 /* CinematicSegmentSelector.swift in Sources */,
+				4171971D2EE0B4F300206969 /* RemoveTrackButton.swift in Sources */,
 				411422AA2ED6BDC80084514E /* PlayerViewModel.swift in Sources */,
+				417197612EE0C16800206969 /* TrackContentView.swift in Sources */,
 				411422B72ED6C3D70084514E /* AppColors.swift in Sources */,
 				411422AB2ED6BDC80084514E /* ContentView.swift in Sources */,
 				411422AC2ED6BDC80084514E /* WelcomeView.swift in Sources */,
 				411422D32ED754890084514E /* HighlightReelSettings.swift in Sources */,
+				417197252EE0B5B100206969 /* TimelineRulerView.swift in Sources */,
 				411422AD2ED6BDC80084514E /* ResolutionPreset.swift in Sources */,
 				411422C52ED6CFBD0084514E /* AutoEditSettings.swift in Sources */,
 				411422DB2ED7627B0084514E /* ColorWheelComponents.swift in Sources */,
 				411422AE2ED6BDC80084514E /* Segment.swift in Sources */,
+				4171970D2EE0B2E300206969 /* StockService.swift in Sources */,
+				417197032EE0B20B00206969 /* TimelineTool.swift in Sources */,
+				4171975D2EE0C08200206969 /* TimelineModel.swift in Sources */,
 				411422AF2ED6BDC80084514E /* AudioService.swift in Sources */,
 				411422CB2ED6FD630084514E /* OptionChip.swift in Sources */,
+				417197052EE0B23A00206969 /* StockClip.swift in Sources */,
 				411422B02ED6BDC80084514E /* TimelineView.swift in Sources */,
 				411422C92ED6DC8A0084514E /* AutoEditTheme.swift in Sources */,
 				411422B12ED6BDC80084514E /* ProjectViewModel.swift in Sources */,
@@ -511,15 +579,22 @@
 				411422B32ED6BDC80084514E /* ProjectType.swift in Sources */,
 				411422E22ED797090084514E /* EditStepView.swift in Sources */,
 				411422E32ED797090084514E /* AudioEditingStepView.swift in Sources */,
+				417197012EE0B1D200206969 /* TimelineTrack.swift in Sources */,
 				411422E42ED797090084514E /* ColorGradingStepView.swift in Sources */,
 				411422E52ED797090084514E /* DaVinciStyleLayout.swift in Sources */,
+				4171971B2EE0B4A300206969 /* ToolSlate.swift in Sources */,
+				4171970B2EE0B2B500206969 /* VideoStabilizationService.swift in Sources */,
 				411422DD2ED767CF0084514E /* PlayheadIndicator.swift in Sources */,
+				417197072EE0B26600206969 /* SegmentIDTransfer.swift in Sources */,
 				411422C32ED6CFB30084514E /* AudioAnalysisEngine.swift in Sources */,
+				417197172EE0B44300206969 /* SegmentManager.swift in Sources */,
 				411422B42ED6BDC80084514E /* ColorPalette.swift in Sources */,
 				411422BD2ED6CC580084514E /* ExportStepView.swift in Sources */,
 				411422BE2ED6CC580084514E /* ReviewStepView.swift in Sources */,
+				4171975F2EE0C0CA00206969 /* CompositionEngine.swift in Sources */,
 				411422BF2ED6CC580084514E /* AutoEditSettingsStepView.swift in Sources */,
 				411422C02ED6CC580084514E /* MediaImportStepView.swift in Sources */,
+				417197152EE0B41800206969 /* TealProgressViewStyle.swift in Sources */,
 				411422C12ED6CC580084514E /* GlobalStepIndicator.swift in Sources */,
 				411422B52ED6BDC80084514E /* ExportService.swift in Sources */,
 			);

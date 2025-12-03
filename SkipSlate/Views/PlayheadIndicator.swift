@@ -14,22 +14,21 @@ struct PlayheadIndicator: View {
     let timelineWidth: CGFloat
     let zoomLevel: TimelineZoom
     let trackHeight: CGFloat // Spans video (60) + divider + audio (50)
-    let selectedTool: TimelineTool // Current timeline tool - playhead only draggable with cursor tool
+    // ISOLATED tool state - no connection to player/preview
+    @ObservedObject private var toolState = ToolState.shared
     
     init(
         playerVM: PlayerViewModel,
         totalDuration: Double,
         timelineWidth: CGFloat,
         zoomLevel: TimelineZoom,
-        trackHeight: CGFloat = 110,
-        selectedTool: TimelineTool = .cursor
+        trackHeight: CGFloat = 110
     ) {
         self.playerVM = playerVM
         self.totalDuration = totalDuration
         self.timelineWidth = timelineWidth
         self.zoomLevel = zoomLevel
         self.trackHeight = trackHeight
-        self.selectedTool = selectedTool
     }
     
     @State private var isDragging = false
@@ -69,10 +68,10 @@ struct PlayheadIndicator: View {
                     .frame(width: 40, height: 30)
                     .offset(x: xPosition - 20, y: -8)
                     .contentShape(Rectangle())
-                    .cursor(selectedTool == .cursor ? .pointingHand : .arrow)
+                    .cursor(toolState.selectedTool == .cursor ? .pointingHand : .arrow)
                     .gesture(
                         // Only allow dragging playhead when cursor tool is selected
-                        selectedTool == .cursor ?
+                        toolState.selectedTool == .cursor ?
                         DragGesture(minimumDistance: 0)
                             .onChanged { value in
                                 if !isDragging {

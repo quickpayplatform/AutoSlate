@@ -16,17 +16,21 @@ import SwiftUI
 import AVFoundation
 
 struct EnhancedTimelineView: View {
-    @ObservedObject var projectViewModel: ProjectViewModel
+    // Project data source
+    @ObservedObject private var projectViewModel: ProjectViewModel
     // CRITICAL: Observe PlayerViewModel directly for preview observation rule
     @ObservedObject private var playerViewModel: PlayerViewModel
     @StateObject private var timelineViewModel = TimelineViewModel()
+    // ISOLATED: Tool state is separate from project/player (Kdenlive pattern)
+    // Changing tools NEVER triggers composition rebuilds
+    @ObservedObject private var toolState = ToolState.shared
     @State private var draggingSegment: Segment?
     @State private var trimmingSegment: Segment?
     @State private var trimHandle: TrimHandle?
     @State private var dragOffset: CGFloat = 0
     
     init(projectViewModel: ProjectViewModel, selectedTool: EditingTool = .select) {
-        self.projectViewModel = projectViewModel
+        self._projectViewModel = ObservedObject(wrappedValue: projectViewModel)
         // CRITICAL: Observe PlayerViewModel directly for Preview Observation Rule
         self._playerViewModel = ObservedObject(wrappedValue: projectViewModel.playerVM)
         
@@ -79,52 +83,29 @@ struct EnhancedTimelineView: View {
     @ViewBuilder
     private var timelineHeader: some View {
         HStack(spacing: 12) {
-                Text("Timeline")
+                Text("Tools")
                     .font(.headline)
                     .foregroundColor(AppColors.primaryText)
                 
-                // Timeline tool buttons (using TimelineTool from ProjectViewModel)
+                // Timeline tool buttons - ISOLATED from playback (Kdenlive pattern)
+                // Tool changes NEVER affect composition or preview
                 HStack(spacing: 4) {
                     ForEach(TimelineTool.allCases) { tool in
                         Button(action: {
-                            print("SkipSlate: 🔧 Button clicked for tool: \(tool.name) (id: \(tool.id))")
-                            print("SkipSlate: 🔧 Current tool before change: \(projectViewModel.selectedTimelineTool.name)")
-                            
-                            // Update tool selection in ProjectViewModel
-                            projectViewModel.selectedTimelineTool = tool
-                            
-                            print("SkipSlate: 🔧 Tool changed to: \(tool.name)")
-                            print("SkipSlate: 🔧 ProjectViewModel.selectedTimelineTool is now: \(projectViewModel.selectedTimelineTool.name)")
-                            
-                            // Immediately update cursor to match selected tool
-                            tool.cursor.push()
-                            
-                            // Clear any segment selection when switching tools (except segmentSelector)
-                            // Use async to avoid "Publishing changes from within view updates" warning
-                            if tool != .segmentSelector {
-                                DispatchQueue.main.async {
-                                    projectViewModel.selectedSegmentIDs.removeAll()
-                                    projectViewModel.selectedSegment = nil
-                                }
-                            }
+                            // Use isolated ToolState - no connection to player/composition
+                            toolState.selectTool(tool)
                         }) {
                             Image(systemName: tool.iconName)
                                 .font(.system(size: 14, weight: .medium))
                                 .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
-                        .foregroundColor(projectViewModel.selectedTimelineTool == tool ? AppColors.tealAccent : AppColors.secondaryText)
+                        .foregroundColor(toolState.selectedTool == tool ? AppColors.tealAccent : AppColors.secondaryText)
                         .background(
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(projectViewModel.selectedTimelineTool == tool ? AppColors.tealAccent.opacity(0.2) : Color.clear)
+                                .fill(toolState.selectedTool == tool ? AppColors.tealAccent.opacity(0.2) : Color.clear)
                         )
                         .help(tool.helpText)
-                        .onChange(of: projectViewModel.selectedTimelineTool) { oldTool, newTool in
-                            // Update cursor when tool changes from elsewhere
-                            if newTool == tool {
-                                tool.cursor.push()
-                            }
-                        }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -132,13 +113,34 @@ struct EnhancedTimelineView: View {
                 .background(AppColors.panelBackground.opacity(0.5))
                 .cornerRadius(6)
                 
-                // Add track buttons
+                // Add/Remove track buttons
                 HStack(spacing: 4) {
+                    // Add buttons (teal)
                     AddTrackButton(trackKind: .video) {
                         projectViewModel.addTrack(kind: .video)
                     }
                     AddTrackButton(trackKind: .audio) {
                         projectViewModel.addTrack(kind: .audio)
+                    }
+                    
+                    // Small separator
+                    Rectangle()
+                        .fill(Color.white.opacity(0.2))
+                        .frame(width: 1, height: 16)
+                        .padding(.horizontal, 4)
+                    
+                    // Remove buttons (orange)
+                    RemoveTrackButton(
+                        trackKind: .video,
+                        isEnabled: projectViewModel.videoTrackCount > 1
+                    ) {
+                        projectViewModel.removeTrack(kind: .video)
+                    }
+                    RemoveTrackButton(
+                        trackKind: .audio,
+                        isEnabled: projectViewModel.audioTrackCount > 1
+                    ) {
+                        projectViewModel.removeTrack(kind: .audio)
                     }
                 }
                 
@@ -168,7 +170,7 @@ struct EnhancedTimelineView: View {
     }
     
     // Track header width - must match TrackHeaderView width for alignment
-    private let trackHeaderWidth: CGFloat = 58  // 50px header + 8px padding
+    private let trackHeaderWidth: CGFloat = 50  // Must match TrackHeaderView.headerWidth exactly
     
     @ViewBuilder
     private var timeRulerSection: some View {
@@ -239,18 +241,30 @@ struct EnhancedTimelineView: View {
                         // Scrollable track content - uses fixed timelineWidth (the "house")
                         ScrollView(.horizontal, showsIndicators: true) {
                             VStack(spacing: 0) {
-                                // Sort tracks: video tracks first (V1, V2, V3...), then audio tracks (A1, A2...)
+                                // Sort tracks: 
+                                // - Video tracks: newest on TOP (reverse order - V3, V2, V1)
+                                // - Audio tracks: newest on BOTTOM (normal order - A1, A2, A3)
                                 let sortedTracks = projectViewModel.tracks.sorted { track1, track2 in
                                     if track1.kind != track2.kind {
                                         // Video tracks come before audio tracks
                                         return track1.kind == .video && track2.kind == .audio
                                     }
-                                    // Within same kind, sort by index
-                                    return track1.index < track2.index
+                                    // Video: higher index first (newest on top)
+                                    // Audio: lower index first (newest on bottom)
+                                    if track1.kind == .video {
+                                        return track1.index > track2.index
+                                    } else {
+                                        return track1.index < track2.index
+                                    }
                                 }
                                 
+                                // Calculate cumulative Y offsets for cross-track movement
+                                let trackHeights = sortedTracks.map { trackHeight(for: $0.id) }
+                                
                                 ForEach(Array(sortedTracks.enumerated()), id: \.element.id) { index, track in
-                                    let currentTrackHeight = trackHeight(for: track.id)
+                                    let currentTrackHeight = trackHeights[index]
+                                    // Calculate Y offset: sum of all previous track heights + dividers
+                                    let trackYOffset = trackHeights.prefix(index).reduce(0, +) + CGFloat(index) // +1px per divider
                                     
                                     TimelineTrackView(
                                         track: track,
@@ -260,7 +274,19 @@ struct EnhancedTimelineView: View {
                                         totalDuration: rulerDuration,  // Use fixed ruler duration
                                         zoomLevel: timelineViewModel.zoomLevel,
                                         trackHeight: currentTrackHeight,
-                                        timelineWidth: timelineWidth  // Use fixed timeline width
+                                        timelineWidth: timelineWidth,  // Use fixed timeline width
+                                        allTracks: sortedTracks,
+                                        trackYOffset: trackYOffset,
+                                        onCrossTrackMove: { segmentID, newTime, absoluteY in
+                                            // Determine target track based on Y position
+                                            handleCrossTrackMove(
+                                                segmentID: segmentID,
+                                                newTime: newTime,
+                                                absoluteY: absoluteY,
+                                                sortedTracks: sortedTracks,
+                                                trackHeights: trackHeights
+                                            )
+                                        }
                                     )
                                     .frame(height: currentTrackHeight)
                                     
@@ -326,6 +352,65 @@ struct EnhancedTimelineView: View {
         
         // Find the minimum compositionStartTime - this is where timestamps should start
         return enabledSegments.map { $0.compositionStartTime }.min() ?? 0
+    }
+    
+    // MARK: - Cross-Track Movement Handler
+    
+    /// Handle cross-track segment movement
+    /// Determines target track based on Y position and moves segment to that track
+    private func handleCrossTrackMove(
+        segmentID: Segment.ID,
+        newTime: Double,
+        absoluteY: CGFloat,
+        sortedTracks: [TimelineTrack],
+        trackHeights: [CGFloat]
+    ) {
+        // Find the track at the given Y position
+        var cumulativeY: CGFloat = 0
+        var targetTrack: TimelineTrack? = nil
+        
+        for (index, track) in sortedTracks.enumerated() {
+            let trackBottom = cumulativeY + trackHeights[index]
+            
+            if absoluteY >= cumulativeY && absoluteY < trackBottom {
+                targetTrack = track
+                break
+            }
+            
+            cumulativeY = trackBottom + 1 // +1 for divider
+        }
+        
+        // If Y is beyond the last track, use the last track
+        if targetTrack == nil && !sortedTracks.isEmpty {
+            if absoluteY < 0 {
+                targetTrack = sortedTracks.first // Top track
+            } else {
+                targetTrack = sortedTracks.last // Bottom track
+            }
+        }
+        
+        // Get the segment's current track to check compatibility
+        guard let segment = projectViewModel.segments.first(where: { $0.id == segmentID }),
+              let currentTrack = projectViewModel.trackForSegment(segmentID),
+              let targetTrack = targetTrack else {
+            // Fallback to same-track move if we can't determine target
+            projectViewModel.moveSegment(segmentID, to: newTime)
+            return
+        }
+        
+        // Only allow moving to tracks of the same kind (video to video, audio to audio)
+        if currentTrack.kind == targetTrack.kind && currentTrack.id != targetTrack.id {
+            // Cross-track move to different track of same type
+            projectViewModel.moveSegmentToTrackAndTime(segmentID, to: newTime, targetTrackID: targetTrack.id)
+            print("SkipSlate: ✅ Moved segment to track \(targetTrack.id) at time \(newTime)")
+        } else if currentTrack.id == targetTrack.id {
+            // Same track - just update time
+            projectViewModel.moveSegment(segmentID, to: newTime)
+        } else {
+            // Different track types - just update time on current track
+            print("SkipSlate: ⚠️ Cannot move \(currentTrack.kind) segment to \(targetTrack.kind) track")
+            projectViewModel.moveSegment(segmentID, to: newTime)
+        }
     }
     
     private func isSegmentPlaying(_ segment: Segment) -> Bool {

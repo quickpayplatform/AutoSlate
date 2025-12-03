@@ -1,4 +1,4 @@
-//
+
 //  MediaDropZoneView.swift
 //  SkipSlate
 //

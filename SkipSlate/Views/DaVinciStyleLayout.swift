@@ -137,11 +137,12 @@ struct DaVinciStyleLayout<Content: View>: View {
             HStack(spacing: 0) {
                 let availableTabs: [WizardStep] = {
                     // If segments exist (auto-edit completed), only show forward tabs
+                    // Order: Edit (primary), Color, Audio, Export
                     if !projectViewModel.segments.isEmpty {
-                        return [.color, .audio, .edit, .export]
+                        return [.edit, .color, .audio, .export]
                     } else {
                         // Before auto-edit, show all tabs
-                        return [.media, .autoEdit, .color, .audio, .edit, .export]
+                        return [.media, .autoEdit, .edit, .color, .audio, .export]
                     }
                 }()
                 

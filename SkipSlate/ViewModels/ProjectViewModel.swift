@@ -36,7 +36,7 @@ class ProjectViewModel: ObservableObject {
     private var autoEditProgress: (completed: Int, total: Int) = (0, 0)
     @Published var timelineZoom: Double = 1.0  // Timeline zoom level
     @Published var trackHeights: [UUID: CGFloat] = [:]  // Track ID -> height in points
-    @Published var selectedTimelineTool: TimelineTool = .cursor  // Current timeline editing tool
+    // NOTE: selectedTimelineTool moved to ToolState.shared - completely isolated from player/preview
     
     // Rerun Auto-Edit tracking
     @Published var hasUserModifiedAutoEdit: Bool = false  // True when user manually edits the timeline
@@ -607,6 +607,71 @@ class ProjectViewModel: ObservableObject {
         immediateRebuild()
     }
     
+    /// Move a segment to a new time position AND optionally to a different track
+    /// This is the primary function for cross-track drag-and-drop
+    /// - Parameters:
+    ///   - segmentID: The segment to move
+    ///   - newCompositionStartTime: The new timeline position in seconds
+    ///   - targetTrackID: Optional new track ID. If nil, segment stays on current track.
+    func moveSegmentToTrackAndTime(_ segmentID: Segment.ID, to newCompositionStartTime: Double, targetTrackID: TimelineTrack.ID?) {
+        print("SkipSlate: [CrossTrackMove] Moving segment \(segmentID) to time=\(newCompositionStartTime), track=\(targetTrackID?.uuidString ?? "same")")
+        
+        hasUserModifiedAutoEdit = true
+        
+        // Validate inputs
+        guard newCompositionStartTime >= 0 && newCompositionStartTime.isFinite else {
+            print("SkipSlate: ⚠️ Invalid time for cross-track move: \(newCompositionStartTime)")
+            return
+        }
+        
+        guard let segmentIndex = project.segments.firstIndex(where: { $0.id == segmentID }) else {
+            print("SkipSlate: ⚠️ Segment not found for cross-track move: \(segmentID)")
+            return
+        }
+        
+        let segment = project.segments[segmentIndex]
+        guard segment.isClip else {
+            print("SkipSlate: ⚠️ Cannot move gap segment across tracks")
+            return
+        }
+        
+        // Update time position
+        project.segments[segmentIndex].compositionStartTime = newCompositionStartTime
+        
+        // If target track specified and different from current, move to new track
+        if let targetTrackID = targetTrackID {
+            // Find current track
+            let currentTrackIndex = project.tracks.firstIndex { $0.segments.contains(segmentID) }
+            let targetTrackIndex = project.tracks.firstIndex { $0.id == targetTrackID }
+            
+            // Only move if target is different from current
+            if let currentIdx = currentTrackIndex, let targetIdx = targetTrackIndex, currentIdx != targetIdx {
+                // Verify track types match (video segment to video track, audio to audio)
+                let currentTrack = project.tracks[currentIdx]
+                let targetTrack = project.tracks[targetIdx]
+                
+                if currentTrack.kind == targetTrack.kind {
+                    // Remove from current track
+                    project.tracks[currentIdx].segments.removeAll { $0 == segmentID }
+                    
+                    // Add to target track (at the end for now - position is determined by compositionStartTime)
+                    project.tracks[targetIdx].segments.append(segmentID)
+                    
+                    print("SkipSlate: ✅ Moved segment from track \(currentIdx) to track \(targetIdx)")
+                } else {
+                    print("SkipSlate: ⚠️ Cannot move \(currentTrack.kind) segment to \(targetTrack.kind) track")
+                }
+            }
+        }
+        
+        immediateRebuild()
+    }
+    
+    /// Find which track a segment belongs to
+    func trackForSegment(_ segmentID: Segment.ID) -> TimelineTrack? {
+        return project.tracks.first { $0.segments.contains(segmentID) }
+    }
+    
     /// Reorder segments within a track
     func reorderSegment(inTrack trackID: TimelineTrack.ID, fromOffsets: IndexSet, toOffset: Int) {
         // Mark that user has manually modified the auto-edit
@@ -674,6 +739,56 @@ class ProjectViewModel: ObservableObject {
                 project.tracks[trackIndex].index = newIndex
             }
         }
+    }
+    
+    /// Remove the topmost video track or bottommost audio track
+    /// - Parameter kind: The kind of track to remove (.video or .audio)
+    /// - Returns: true if a track was removed, false if removal was not possible
+    @discardableResult
+    func removeTrack(kind: TrackKind) -> Bool {
+        let tracksOfKind = project.tracks.filter { $0.kind == kind }
+        
+        // Don't allow removing the last track of a kind
+        guard tracksOfKind.count > 1 else {
+            print("SkipSlate: ⚠️ Cannot remove the only \(kind == .video ? "video" : "audio") track")
+            return false
+        }
+        
+        // Find the track to remove:
+        // - For video: remove the one with highest index (topmost, newest)
+        // - For audio: remove the one with highest index (bottommost, newest)
+        guard let trackToRemove = tracksOfKind.max(by: { $0.index < $1.index }) else {
+            return false
+        }
+        
+        // Remove all segments that belong to this track
+        let segmentIDsToRemove = trackToRemove.segments
+        project.segments.removeAll { segmentIDsToRemove.contains($0.id) }
+        
+        // Remove the track
+        project.tracks.removeAll { $0.id == trackToRemove.id }
+        
+        // Update indices to keep them consecutive
+        updateTrackIndices(for: kind)
+        
+        hasUserModifiedAutoEdit = true
+        objectWillChange.send()
+        
+        // Rebuild composition to reflect changes
+        immediateRebuild()
+        
+        print("SkipSlate: ✅ Removed \(kind == .video ? "video" : "audio") track at index \(trackToRemove.index)")
+        return true
+    }
+    
+    /// Count of video tracks
+    var videoTrackCount: Int {
+        project.tracks.filter { $0.kind == .video }.count
+    }
+    
+    /// Count of audio tracks
+    var audioTrackCount: Int {
+        project.tracks.filter { $0.kind == .audio }.count
     }
     
     // MARK: - Transform Effects

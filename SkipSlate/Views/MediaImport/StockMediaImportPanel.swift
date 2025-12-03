@@ -1,4 +1,4 @@
-//
+
 //  StockMediaImportPanel.swift
 //
 //  MODULE: Media Import UI - Stock Media Import Panel
@@ -92,7 +92,7 @@ struct StockMediaImportPanel: View {
                     guard let videoURL = url else { return }
                     
                     // Check if it's a video URL (by extension or domain)
-                    let isVideoURL = videoURL.pathExtension.lowercased() == "mp4" || 
+                    let isVideoURL = videoURL.pathExtension.lowercased() == "mp4" ||
                                     videoURL.pathExtension.lowercased() == "mov" ||
                                     videoURL.pathExtension.lowercased() == "webm" ||
                                     videoURL.pathExtension.lowercased() == "m4v" ||

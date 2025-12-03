@@ -1,4 +1,4 @@
-//
+
 //  MediaImportHeaderView.swift
 //  SkipSlate
 //

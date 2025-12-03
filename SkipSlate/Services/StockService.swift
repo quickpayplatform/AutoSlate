@@ -2,9 +2,9 @@
 //  StockService.swift
 //  SkipSlate
 //
-//  Created by Cursor on 11/25/25.
+//  Created by Tee Forest on 12/3/25.
 //
-//  Service for searching and downloading stock videos from backend
+
 
 import Foundation
 

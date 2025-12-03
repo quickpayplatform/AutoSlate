@@ -13,9 +13,9 @@ enum WizardStep: Int, CaseIterable {
     case name = 3
     case media = 4
     case autoEdit = 5
-    case color = 6
-    case audio = 7
-    case edit = 8
+    case edit = 6      // Edit is now first after auto-edit
+    case color = 7
+    case audio = 8
     case export = 9
     
     var label: String {

@@ -2,9 +2,7 @@
 //  MenuActions.swift
 //  SkipSlate
 //
-//  Created by Cursor on 11/25/25.
-//
-//  Central handler for all menu bar actions in Auto Slate
+//  Created by Tee Forest on 12/3/25.
 //
 
 import SwiftUI

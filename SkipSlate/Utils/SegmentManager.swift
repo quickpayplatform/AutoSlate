@@ -2,9 +2,8 @@
 //  SegmentManager.swift
 //  SkipSlate
 //
-//  Created by Cursor on 11/25/25.
+//  Created by Tee Forest on 12/3/25.
 //
-//  Simplified segment management system to make deletion and operations easier
 //
 
 import Foundation

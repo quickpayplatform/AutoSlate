@@ -2,8 +2,9 @@
 //  SegmentPreviewWindow.swift
 //  SkipSlate
 //
-//  Created by Cursor on 12/28/25.
+//  Created by Tee Forest on 12/3/25.
 //
+
 
 import SwiftUI
 import AVFoundation

@@ -2,9 +2,9 @@
 //  PexelsService.swift
 //  SkipSlate
 //
-//  Created by Cursor on 11/25/25.
+//  Created by Tee Forest on 12/3/25.
 //
-//  Service for integrating with Pexels API for stock videos and photos
+
 
 import Foundation
 import Combine

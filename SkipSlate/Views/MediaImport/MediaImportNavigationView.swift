@@ -1,4 +1,4 @@
-//
+
 //  MediaImportNavigationView.swift
 //  SkipSlate
 //

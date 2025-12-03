@@ -1,4 +1,4 @@
-//
+
 //  StockSearchView.swift
 //  SkipSlate
 //
@@ -228,7 +228,7 @@ struct StockSearchView: View {
                 let fileName = importedClip.fileName.lowercased()
                 let urlPath = importedClip.url.lastPathComponent.lowercased()
                 // Check for Pexels filename pattern (e.g., "pexels_33856113")
-                return fileName.contains(pexelsPattern.lowercased()) || 
+                return fileName.contains(pexelsPattern.lowercased()) ||
                        urlPath.contains(pexelsPattern.lowercased())
             }
             if isImported {
@@ -465,9 +465,9 @@ struct StockClipCard: View {
             // Try to get URL from drag - handle both file URLs and web URLs
             if provider.hasItemConformingToTypeIdentifier("public.file-url") {
                 provider.loadItem(forTypeIdentifier: "public.file-url", options: nil) { item, error in
-                    guard error == nil else { 
+                    guard error == nil else {
                         print("SkipSlate: StockClipCard - Error loading file URL: \(error?.localizedDescription ?? "unknown")")
-                        return 
+                        return
                     }
                     
                     if let data = item as? Data,
@@ -488,9 +488,9 @@ struct StockClipCard: View {
             } else if provider.hasItemConformingToTypeIdentifier("public.url") {
                 // Try to get URL string - if it matches this clip's URL, download and import
                 provider.loadItem(forTypeIdentifier: "public.url", options: nil) { item, error in
-                    guard error == nil else { 
+                    guard error == nil else {
                         print("SkipSlate: StockClipCard - Error loading URL: \(error?.localizedDescription ?? "unknown")")
-                        return 
+                        return
                     }
                     
                     var draggedURL: URL?
@@ -504,7 +504,7 @@ struct StockClipCard: View {
                     
                     // Check if it's this clip's download URL or a related URL
                     let sourceIdString = String(clip.sourceId)
-                    let isThisClip = url.absoluteString == clip.downloadUrl.absoluteString || 
+                    let isThisClip = url.absoluteString == clip.downloadUrl.absoluteString ||
                                     url.absoluteString.contains(sourceIdString) ||
                                     url.absoluteString == clip.thumbnailUrl.absoluteString
                     

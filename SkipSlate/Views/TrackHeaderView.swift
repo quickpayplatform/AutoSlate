@@ -5,10 +5,10 @@
 //  Created by Tee Forest on 12/2/25.
 //
 //  MODULE: Timeline UI
-//  - DaVinci-style track header component
-//  - Shows "V" or "A" label in compact pill style
-//  - Teal outline when track is active/armed
-//  - Space reserved for future controls (mute, lock, visibility)
+//  - Modern track header with icons
+//  - Video tracks: Teal accent with film icon
+//  - Audio tracks: Orange accent with waveform icon
+//  - Sleek, minimal design matching app aesthetic
 //
 
 import SwiftUI
@@ -25,63 +25,128 @@ struct TrackHeaderView: View {
     
     private let headerWidth: CGFloat = 50
     
+    // Track colors based on type
+    private var trackColor: Color {
+        track.kind == .video ? AppColors.tealAccent : AppColors.orangeAccent
+    }
+    
+    private var trackIcon: String {
+        track.kind == .video ? "film" : "waveform"
+    }
+    
     var body: some View {
-        HStack(spacing: 4) {
-            // Main track label pill
-            ZStack {
-                // Background pill
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(isActive ? AppColors.tealAccent.opacity(0.15) : AppColors.panelBackground)
-                    .frame(width: 32, height: 24)
-                
-                // Teal border when active
-                if isActive {
-                    RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(AppColors.tealAccent, lineWidth: 1.5)
-                        .frame(width: 32, height: 24)
-                }
-                
-                // Track label ("V" or "A")
-                Text(track.kind == .video ? "V" : "A")
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(isActive ? AppColors.tealAccent : AppColors.secondaryText)
-            }
+        HStack(spacing: 0) {
+            // Track indicator bar (thin accent stripe on the left)
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [trackColor, trackColor.opacity(0.6)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 3)
             
-            // Future controls area (mute, lock, visibility icons)
-            // For now, just reserve space - these will be added later
-            HStack(spacing: 2) {
-                // Mute button (for audio tracks, or video tracks with audio)
-                if track.kind == .audio {
-                    Button(action: {
-                        onMuteToggle?()
-                    }) {
-                        Image(systemName: track.isMuted ? "speaker.slash.fill" : "speaker.fill")
-                            .font(.system(size: 9))
-                            .foregroundColor(track.isMuted ? AppColors.orangeAccent : AppColors.secondaryText)
-                            .frame(width: 16, height: 16)
+            // Main track label area
+            HStack(spacing: 6) {
+                // Icon with subtle glow effect
+                ZStack {
+                    // Glow background when active
+                    if isActive {
+                        Circle()
+                            .fill(trackColor.opacity(0.3))
+                            .frame(width: 28, height: 28)
+                            .blur(radius: 4)
                     }
-                    .buttonStyle(.plain)
-                    .help(track.isMuted ? "Unmute track" : "Mute track")
+                    
+                    // Icon container
+                    ZStack {
+                        // Background circle with gradient
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [
+                                        trackColor.opacity(isActive ? 0.4 : 0.2),
+                                        trackColor.opacity(isActive ? 0.2 : 0.1)
+                                    ],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 26, height: 26)
+                        
+                        // Subtle border
+                        Circle()
+                            .strokeBorder(
+                                trackColor.opacity(isActive ? 0.8 : 0.4),
+                                lineWidth: 1
+                            )
+                            .frame(width: 26, height: 26)
+                        
+                        // Icon
+                        Image(systemName: trackIcon)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(trackColor)
+                    }
                 }
                 
-                // Lock button
-                Button(action: {
-                    onLockToggle?()
-                }) {
-                    Image(systemName: track.isLocked ? "lock.fill" : "lock.open")
-                        .font(.system(size: 9))
-                        .foregroundColor(track.isLocked ? AppColors.orangeAccent : AppColors.secondaryText)
-                        .frame(width: 16, height: 16)
+                // Lock indicator (subtle, only when locked)
+                if track.isLocked {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 8))
+                        .foregroundColor(AppColors.orangeAccent.opacity(0.7))
                 }
-                .buttonStyle(.plain)
-                .help(track.isLocked ? "Unlock track" : "Lock track")
+                
+                Spacer()
             }
-            .opacity(0.6)  // Subtle appearance for future controls
-            
-            Spacer()
+            .padding(.leading, 6)
+            .padding(.trailing, 4)
         }
         .frame(width: headerWidth, height: height)
-        .padding(.horizontal, 4)
-        .background(AppColors.panelBackground)
+        .background(
+            // Subtle gradient background
+            LinearGradient(
+                colors: [
+                    AppColors.panelBackground,
+                    AppColors.panelBackground.opacity(0.95)
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+        .overlay(
+            // Bottom border for separation
+            Rectangle()
+                .fill(Color.white.opacity(0.05))
+                .frame(height: 1),
+            alignment: .bottom
+        )
     }
+}
+
+// MARK: - Preview
+#Preview {
+    VStack(spacing: 0) {
+        TrackHeaderView(
+            track: TimelineTrack(kind: .video, index: 0),
+            isActive: true,
+            height: 60
+        )
+        TrackHeaderView(
+            track: TimelineTrack(kind: .video, index: 1),
+            isActive: false,
+            height: 60
+        )
+        TrackHeaderView(
+            track: TimelineTrack(kind: .audio, index: 0),
+            isActive: false,
+            height: 50
+        )
+        TrackHeaderView(
+            track: TimelineTrack(kind: .audio, index: 1),
+            isActive: true,
+            height: 50
+        )
+    }
+    .background(AppColors.background)
 }

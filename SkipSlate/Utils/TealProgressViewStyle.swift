@@ -2,9 +2,8 @@
 //  TealProgressViewStyle.swift
 //  SkipSlate
 //
-//  Created by Cursor on 11/25/25.
+//  Created by Tee Forest on 12/3/25.
 //
-//  Custom ProgressView style that renders in teal color for macOS
 //
 
 import SwiftUI

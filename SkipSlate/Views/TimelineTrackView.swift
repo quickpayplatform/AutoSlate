@@ -19,6 +19,12 @@ struct TimelineTrackView: View {
     let zoomLevel: TimelineZoom
     let trackHeight: CGFloat
     let timelineWidth: CGFloat
+    // Cross-track movement support
+    let allTracks: [TimelineTrack]
+    let trackYOffset: CGFloat  // Y position of this track within the timeline scroll area
+    let onCrossTrackMove: ((Segment.ID, Double, CGFloat) -> Void)?  // segmentID, newTime, yOffset
+    // ISOLATED tool state - no connection to player/preview
+    @ObservedObject private var toolState = ToolState.shared
     
     init(
         track: TimelineTrack,
@@ -28,7 +34,10 @@ struct TimelineTrackView: View {
         totalDuration: Double,
         zoomLevel: TimelineZoom,
         trackHeight: CGFloat,
-        timelineWidth: CGFloat
+        timelineWidth: CGFloat,
+        allTracks: [TimelineTrack] = [],
+        trackYOffset: CGFloat = 0,
+        onCrossTrackMove: ((Segment.ID, Double, CGFloat) -> Void)? = nil
     ) {
         self.track = track
         self.projectViewModel = projectViewModel
@@ -38,6 +47,9 @@ struct TimelineTrackView: View {
         self.zoomLevel = zoomLevel
         self.trackHeight = trackHeight
         self.timelineWidth = timelineWidth
+        self.allTracks = allTracks
+        self.trackYOffset = trackYOffset
+        self.onCrossTrackMove = onCrossTrackMove
     }
     
     @State private var draggedSegmentID: Segment.ID?
@@ -134,7 +146,9 @@ struct TimelineTrackView: View {
                                 },
                                 onTrimEnd: { newEnd in
                                     trimSegment(segment, start: nil, end: newEnd)
-                                }
+                                },
+                                trackYOffset: trackYOffset,
+                                onCrossTrackMove: onCrossTrackMove
                             )
                             .offset(x: itemXPosition(for: item))
                             .animation(.easeInOut(duration: 0.2), value: itemXPosition(for: item))  // Smooth animation for position changes
@@ -154,13 +168,13 @@ struct TimelineTrackView: View {
                             )
                     }
                 }
-                .padding(.horizontal, 4)
+                // NOTE: No horizontal padding - segments must align exactly with time ruler
                 
                 // Empty space click handler for seeking - ONLY when cursor tool is selected
                 // Other tools should not move the playhead when clicking empty space
                 // CRITICAL: This Rectangle must be behind segments so it doesn't block tool interactions
                 Group {
-                    if totalDuration > 0 && projectViewModel.selectedTimelineTool == .cursor {
+                    if totalDuration > 0 && toolState.selectedTool == .cursor {
                         Rectangle()
                             .fill(Color.clear)
                             .frame(height: trackHeight)
@@ -170,7 +184,7 @@ struct TimelineTrackView: View {
                                 DragGesture(minimumDistance: 0)
                                     .onEnded { value in
                                         // Only allow seeking with cursor tool
-                                        guard projectViewModel.selectedTimelineTool == .cursor else { return }
+                                        guard toolState.selectedTool == .cursor else { return }
                                         
                                         // Calculate time from click position
                                         let clickX = value.location.x
@@ -197,7 +211,7 @@ struct TimelineTrackView: View {
                             .allowsHitTesting(false) // Don't block segment interactions
                             .onDrop(of: [UTType.segmentID], isTargeted: nil) { providers, location in
                                 // Only allow drops when cursor tool is selected
-                                guard projectViewModel.selectedTimelineTool == .cursor else { return false }
+                                guard toolState.selectedTool == .cursor else { return false }
                                 return handleSegmentDrop(providers: providers, location: location, timelineWidth: timelineWidth, totalDuration: totalDuration)
                             }
                     }
@@ -414,6 +428,11 @@ struct TimelineSegmentView: View {
     let onDelete: () -> Void
     let onTrimStart: (Double) -> Void
     let onTrimEnd: (Double) -> Void
+    // Cross-track movement support
+    let trackYOffset: CGFloat
+    let onCrossTrackMove: ((Segment.ID, Double, CGFloat) -> Void)?
+    // ISOLATED tool state - no connection to player/preview
+    @ObservedObject private var toolState = ToolState.shared
     
     @State private var isHovered = false
     @State private var isDragging = false
@@ -553,7 +572,7 @@ struct TimelineSegmentView: View {
                             }
                             
                             // Check TimelineTool from ProjectViewModel (primary tool system)
-                            let timelineTool = projectViewModel.selectedTimelineTool
+                            let timelineTool = toolState.selectedTool
                             
                             print("SkipSlate: 🔵 TAP DETECTED with TimelineTool: \(timelineTool.name) for segment: \(segment.id)")
                             
@@ -622,7 +641,7 @@ struct TimelineSegmentView: View {
                     DragGesture(minimumDistance: 5)
                         .onChanged { value in
                             // Allow dragging with move tool or cursor tool
-                            let tool = projectViewModel.selectedTimelineTool
+                            let tool = toolState.selectedTool
                             guard tool == .move || tool == .cursor else { return }
                             
                             // CRASH-PROOF: Only allow moving clip segments (not gaps)
@@ -671,6 +690,7 @@ struct TimelineSegmentView: View {
                             
                             // Calculate final position using fixed pixels per second
                             let deltaX = value.translation.width
+                            let deltaY = value.translation.height
                             let deltaTime = Double(deltaX) / Double(pixelsPerSecond)
                             let rawFinalTime = max(0, dragStartTime + deltaTime)
                             
@@ -680,19 +700,26 @@ struct TimelineSegmentView: View {
                             // Reset visual offset immediately since we're committing to the model
                             dragVisualOffset = 0
                             
-                            // IMMEDIATE: Update segment position and rebuild composition for preview
-                            // This ensures the preview shows the segment in its new position
-                            projectViewModel.moveSegment(segment.id, to: finalTime)
+                            // CROSS-TRACK MOVEMENT: If Y offset is significant, check for track change
+                            if let onCrossTrackMove = onCrossTrackMove, abs(deltaY) > trackHeight * 0.3 {
+                                // Report the Y offset relative to this track's position for parent to determine target track
+                                let absoluteY = trackYOffset + deltaY
+                                onCrossTrackMove(segment.id, finalTime, absoluteY)
+                                print("SkipSlate: ✅ Cross-track move: segment \(segment.id) to time \(finalTime)s, yOffset \(absoluteY)")
+                            } else {
+                                // Same track movement - just update time position
+                                projectViewModel.moveSegment(segment.id, to: finalTime)
+                                print("SkipSlate: ✅ Finished dragging segment \(segment.id) to position \(finalTime)s (snapped from \(rawFinalTime)s)")
+                            }
                             
                             isDragging = false
                             dragLastUpdateTime = nil
-                            print("SkipSlate: ✅ Finished dragging segment \(segment.id) to position \(finalTime)s (snapped from \(rawFinalTime)s)")
                         }
                 )
                 .onHover { hovering in
                     // Update cursor based on selected tool when hovering over segment
                     if hovering {
-                        let tool = projectViewModel.selectedTimelineTool
+                        let tool = toolState.selectedTool
                         tool.cursor.push()
                     } else {
                         NSCursor.pop()
@@ -700,7 +727,7 @@ struct TimelineSegmentView: View {
                 }
             
             // Trim handles - show when segment is selected AND trim tool is active
-            let showTrimHandles = isSelected && segment.enabled && width > 40 && projectViewModel.selectedTimelineTool == .trim
+            let showTrimHandles = isSelected && segment.enabled && width > 40 && toolState.selectedTool == .trim
             
             // Left trim handle
             if showTrimHandles {

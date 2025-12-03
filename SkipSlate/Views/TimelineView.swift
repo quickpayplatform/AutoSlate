@@ -10,6 +10,8 @@ import SwiftUI
 struct TimelineView: View {
     @ObservedObject var projectViewModel: ProjectViewModel
     @State private var zoomLevel: TimelineZoom = .fit
+    // ISOLATED: Tool state separate from project/player (Kdenlive pattern)
+    @ObservedObject private var toolState = ToolState.shared
     
     private let defaultTrackHeight: CGFloat = 60
     private let minTrackHeight: CGFloat = 40
@@ -29,48 +31,24 @@ struct TimelineView: View {
                     .font(.headline)
                     .foregroundColor(AppColors.primaryText)
                 
-                // Tool selector buttons
+                // Tool selector buttons - ISOLATED from player/preview
                 HStack(spacing: 4) {
                     ForEach(TimelineTool.allCases) { tool in
                         Button(action: {
-                            print("SkipSlate: 🔧 [TimelineView] Button clicked for tool: \(tool.name) (id: \(tool.id))")
-                            print("SkipSlate: 🔧 [TimelineView] Current tool before change: \(projectViewModel.selectedTimelineTool.name)")
-                            
-                            // Update tool selection
-                            projectViewModel.selectedTimelineTool = tool
-                            
-                            print("SkipSlate: 🔧 [TimelineView] Tool changed to: \(tool.name)")
-                            print("SkipSlate: 🔧 [TimelineView] ProjectViewModel.selectedTimelineTool is now: \(projectViewModel.selectedTimelineTool.name)")
-                            
-                            // Immediately update cursor to match selected tool
-                            tool.cursor.push()
-                            
-                            // Clear any segment selection when switching tools (except segmentSelector)
-                            // Use async to avoid "Publishing changes from within view updates" warning
-                            if tool != .segmentSelector {
-                                DispatchQueue.main.async {
-                                    projectViewModel.selectedSegmentIDs.removeAll()
-                                    projectViewModel.selectedSegment = nil
-                                }
-                            }
+                            // Use isolated ToolState - no connection to player
+                            toolState.selectTool(tool)
                         }) {
                             Image(systemName: tool.iconName)
                                 .font(.system(size: 14, weight: .medium))
                                 .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
-                        .foregroundColor(projectViewModel.selectedTimelineTool == tool ? AppColors.tealAccent : AppColors.secondaryText)
+                        .foregroundColor(toolState.selectedTool == tool ? AppColors.tealAccent : AppColors.secondaryText)
                         .background(
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(projectViewModel.selectedTimelineTool == tool ? AppColors.tealAccent.opacity(0.2) : Color.clear)
+                                .fill(toolState.selectedTool == tool ? AppColors.tealAccent.opacity(0.2) : Color.clear)
                         )
                         .help(tool.helpText)
-                        .onChange(of: projectViewModel.selectedTimelineTool) { oldTool, newTool in
-                            // Update cursor when tool changes from elsewhere
-                            if newTool == tool {
-                                tool.cursor.push()
-                            }
-                        }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -169,7 +147,7 @@ struct TimelineView: View {
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .onHover { hovering in
                                 if hovering {
-                                    projectViewModel.selectedTimelineTool.cursor.push()
+                                    toolState.selectedTool.cursor.push()
                                 } else {
                                     NSCursor.pop()
                                 }
