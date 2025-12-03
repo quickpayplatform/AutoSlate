@@ -159,18 +159,30 @@ class ExportService {
                 print("SkipSlate: ExportService - ⚠️ WARNING: Video composition is nil - export may not match preview")
             }
         } else {
-            // Fallback: Create video composition using ExportService's method
-            print("SkipSlate: ExportService - Creating video composition (PlayerViewModel not provided)")
-            do {
-                videoComposition = createVideoComposition(
-                    for: composition,
-                    settings: project.colorSettings,
-                    resolution: resolution,
-                    aspectRatio: project.aspectRatio
-                )
-            } catch {
-                print("SkipSlate: ⚠️ ExportService - Failed to create video composition: \(error)")
-                videoComposition = nil // Continue without video composition
+            // Fallback: Use TransitionService to ensure transforms are applied (same as preview)
+            print("SkipSlate: ExportService - Creating video composition using TransitionService (PlayerViewModel not provided)")
+            let enabledSegments = project.segments.filter { $0.enabled }
+            if let transitionComposition = TransitionService.shared.createVideoCompositionWithTransitions(
+                for: composition,
+                segments: enabledSegments,
+                project: project
+            ) {
+                videoComposition = transitionComposition
+                print("SkipSlate: ExportService - ✅ Using TransitionService video composition (with transforms)")
+            } else {
+                // Final fallback to ExportService's basic video composition (no transforms)
+                print("SkipSlate: ExportService - ⚠️ Using fallback video composition (transforms may not be applied)")
+                do {
+                    videoComposition = createVideoComposition(
+                        for: composition,
+                        settings: project.colorSettings,
+                        resolution: resolution,
+                        aspectRatio: project.aspectRatio
+                    )
+                } catch {
+                    print("SkipSlate: ⚠️ ExportService - Failed to create video composition: \(error)")
+                    videoComposition = nil // Continue without video composition
+                }
             }
         }
         

@@ -86,13 +86,15 @@ struct MediaImportItemRow: View {
             Spacer()
             
             Button(action: {
+                print("SkipSlate: 🗑️ Delete button clicked for clip: \(clip.fileName)")
                 removeClip(clip)
             }) {
                 Image(systemName: "trash")
-                    .foregroundColor(AppColors.secondaryText)
+                    .foregroundColor(.red.opacity(0.8))
                     .font(.caption)
             }
             .buttonStyle(.plain)
+            .help("Delete this clip from the project")
         }
         .padding(10)
         .background(AppColors.panelBackground)
@@ -127,12 +129,7 @@ struct MediaImportItemRow: View {
     }
     
     private func removeClip(_ clip: MediaClip) {
-        // Use ProjectViewModel's proper method if available, otherwise direct modification
-        // NOTE: This should ideally go through a ProjectViewModel method to ensure proper state management
-        var updatedProject = projectViewModel.project
-        updatedProject.clips.removeAll { $0.id == clip.id }
-        // CRITICAL: Only update project, do NOT trigger composition rebuild
-        // Composition rebuild should only happen when segments change, not when clips change
-        projectViewModel.project = updatedProject
+        // Use ProjectViewModel's proper method to ensure proper state management
+        projectViewModel.removeClip(clip.id)
     }
 }

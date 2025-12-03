@@ -47,11 +47,11 @@ struct Project {
         if let tracks = tracks {
             self.tracks = tracks
         } else {
-            // Create default tracks: V1 (primary video), V2 (overlay), A1 (audio)
+            // CRITICAL: Create exactly one video track (V1) and one audio track (A1)
+            // Auto-edit will use V1 only. Users can add V2, V3, etc. manually for overlays.
             self.tracks = [
-                TimelineTrack(type: .videoPrimary, name: "V1"),
-                TimelineTrack(type: .videoOverlay, name: "V2"),
-                TimelineTrack(type: .audio, name: "A1")
+                TimelineTrack(kind: .video, index: 0, segments: []),  // V1 - base video track
+                TimelineTrack(kind: .audio, index: 0, segments: [])   // A1 - audio track
             ]
         }
         

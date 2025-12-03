@@ -192,14 +192,15 @@ struct CachedMediaClipRow: View {
                     
                     // Delete button
                     Button(action: {
-                        projectViewModel.removeClipFromCache(clip.id)
+                        // Show confirmation dialog before deleting
+                        projectViewModel.removeClip(clip.id)
                     }) {
                         Image(systemName: "trash")
                             .font(.system(size: 14))
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(isDeleted ? AppColors.secondaryText.opacity(0.5) : .red)
-                    .help("Remove from cache")
+                    .help("Delete clip from project")
                     .disabled(isDeleted)
                 }
             }

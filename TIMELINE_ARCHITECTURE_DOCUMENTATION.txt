@@ -1,0 +1,601 @@
+================================================================================
+SKIPSLATE TIMELINE ARCHITECTURE DOCUMENTATION
+================================================================================
+Created: December 2, 2025
+Purpose: Comprehensive documentation of timeline features, video scaling, 
+         timestamps, tracks, segments, and duration limits for AI assistance.
+
+================================================================================
+1. VIDEO SCALING AND TRANSFORM EFFECTS
+================================================================================
+
+OVERVIEW:
+The video scaling system supports two types of transforms:
+1. "Scale to Fill Frame" - Automatic zoom/crop to eliminate black bars
+2. Manual transform sliders - Scale, Position X/Y, Rotation
+
+HOW IT WORKS:
+
+A. Data Model (Segment.swift):
+------------------------------
+Each segment stores transform properties in two structs:
+
+struct SegmentTransform: Codable, Equatable {
+    var scaleToFillFrame: Bool = false  // Auto-scale to fill project frame
+}
+
+struct SegmentEffects: Codable {
+    var scale: Double = 1.0              // Manual scale (0.5 to 3.0)
+    var positionX: Double = 0.0          // Position X (-100 to +100, percentage)
+    var positionY: Double = 0.0          // Position Y (-100 to +100, percentage)
+    var rotation: Double = 0.0           // Rotation in degrees (-180 to +180)
+    // ... other effects
+}
+
+struct Segment: Identifiable, Codable {
+    var effects: SegmentEffects = SegmentEffects()
+    var transform: SegmentTransform = SegmentTransform()
+    // ... other properties
+}
+
+B. UI Controls (InspectorPanel.swift):
+----------------------------------------
+The Inspector panel provides sliders for manual transforms:
+
+// Scale slider
+Slider(
+    value: Binding(
+        get: { selectedSegment.effects.scale },
+        set: { newValue in
+            updateSegmentEffects { effects in
+                effects.scale = newValue
+            }
+        }
+    ),
+    in: 0.5...3.0
+)
+
+// Position X slider
+Slider(
+    value: Binding(
+        get: { selectedSegment.effects.positionX },
+        set: { newValue in
+            updateSegmentEffects { effects in
+                effects.positionX = newValue
+            }
+        }
+    ),
+    in: -100.0...100.0
+)
+
+// Position Y slider (same pattern)
+// Rotation slider (same pattern, -180.0...180.0)
+
+// Scale to Fill Frame button
+Button(action: {
+    if selectedSegment.transform.scaleToFillFrame {
+        projectViewModel.removeScaleToFillFrame()
+    } else {
+        projectViewModel.scaleSelectedSegmentsToFillFrame()
+    }
+}) {
+    // Button UI
+}
+
+C. Update Pipeline (ProjectViewModel.swift):
+---------------------------------------------
+When a slider changes, it calls updateSegmentEffects():
+
+private func updateSegmentEffects(_ update: (inout SegmentEffects) -> Void) {
+    guard var segment = projectViewModel.selectedSegment else { return }
+    update(&segment.effects)
+    projectViewModel.updateSegmentImmediate(segment)  // Triggers immediate rebuild
+}
+
+func updateSegmentImmediate(_ segment: Segment) {
+    guard let index = project.segments.firstIndex(where: { $0.id == segment.id }) else { return }
+    project.segments[index] = segment
+    immediateRebuild()  // Forces composition rebuild
+}
+
+D. Transform Calculation (TransitionService.swift):
+----------------------------------------------------
+The transform is calculated in calculateCompleteTransform():
+
+func calculateCompleteTransform(
+    for segment: Segment,
+    track: AVAssetTrack,
+    project: Project
+) -> CGAffineTransform {
+    // Start with preferredTransform (handles source rotation/flip)
+    var transform = track.preferredTransform
+    
+    // Step 1: Apply Scale to Fill Frame if enabled
+    if segment.transform.scaleToFillFrame {
+        let scaleToFillTransform = transformForScaleToFill(
+            sourceSize: track.naturalSize,
+            projectSize: CGSize(width: project.resolution.width, height: project.resolution.height)
+        )
+        transform = transform.concatenating(scaleToFillTransform)
+    }
+    
+    // Step 2: Apply manual scale (around center)
+    if segment.effects.scale != 1.0 {
+        let centerX = projectSize.width / 2.0
+        let centerY = projectSize.height / 2.0
+        var scaleTransform = CGAffineTransform.identity
+        scaleTransform = scaleTransform.translatedBy(x: centerX, y: centerY)
+        scaleTransform = scaleTransform.scaledBy(x: segment.effects.scale, y: segment.effects.scale)
+        scaleTransform = scaleTransform.translatedBy(x: -centerX, y: -centerY)
+        transform = transform.concatenating(scaleTransform)
+    }
+    
+    // Step 3: Apply rotation (around center)
+    if segment.effects.rotation != 0.0 {
+        let rotationRadians = segment.effects.rotation * .pi / 180.0
+        // ... rotation transform around center
+        transform = transform.concatenating(rotationTransform)
+    }
+    
+    // Step 4: Apply position translation
+    let translationX = (segment.effects.positionX / 100.0) * projectSize.width
+    let translationY = (segment.effects.positionY / 100.0) * projectSize.height
+    if translationX != 0.0 || translationY != 0.0 {
+        let positionTransform = CGAffineTransform(translationX: translationX, y: translationY)
+        transform = transform.concatenating(positionTransform)
+    }
+    
+    return transform
+}
+
+E. Scale to Fill Frame Calculation:
+-----------------------------------
+private func transformForScaleToFill(sourceSize: CGSize, projectSize: CGSize) -> CGAffineTransform {
+    let srcWidth = abs(sourceSize.width)
+    let srcHeight = abs(sourceSize.height)
+    let projWidth = projectSize.width
+    let projHeight = projectSize.height
+    
+    // Calculate scale to cover (not fit) - use larger scale
+    let scaleX = projWidth / srcWidth
+    let scaleY = projHeight / srcHeight
+    let scale = max(scaleX, scaleY)  // Ensures full coverage
+    
+    // Center the scaled video
+    let scaledWidth = srcWidth * scale
+    let scaledHeight = srcHeight * scale
+    let tx = (projWidth - scaledWidth) / 2.0
+    let ty = (projHeight - scaledHeight) / 2.0
+    
+    // Build transform: scale first, then translate
+    var t = CGAffineTransform.identity
+    t = t.scaledBy(x: scale, y: scale)
+    t = t.translatedBy(x: tx / scale, y: ty / scale)
+    
+    return t
+}
+
+F. Real-Time Preview Updates:
+------------------------------
+The transform pipeline ensures instant preview updates:
+
+1. Slider change → updateSegmentEffects()
+2. updateSegmentEffects() → updateSegmentImmediate()
+3. updateSegmentImmediate() → immediateRebuild()
+4. immediateRebuild() → playerVM.rebuildComposition()
+5. rebuildComposition() → creates new AVComposition with transforms
+6. AVComposition → AVPlayerItem.videoComposition → Preview updates
+
+The projectHash() includes transform properties to detect changes:
+- segment.effects.scale
+- segment.effects.positionX
+- segment.effects.positionY
+- segment.effects.rotation
+- segment.transform.scaleToFillFrame
+
+This ensures any transform change triggers a composition rebuild.
+
+================================================================================
+2. TIMELINE TIMESTAMPS AND TIMECODE
+================================================================================
+
+OVERVIEW:
+The timeline displays timecode in HH:MM:SS:FF format. The timecode starts at 
+00:00:00:00 and represents the composition timeline, NOT the source clip timeline.
+
+HOW IT WORKS:
+
+A. Time Ruler Display (TimeRulerView.swift):
+-------------------------------------------
+The time ruler shows timecode based on the total composition duration:
+
+private func timeString(from seconds: Double) -> String {
+    let totalSeconds = Int(seconds)
+    let hours = totalSeconds / 3600
+    let minutes = (totalSeconds % 3600) / 60
+    let secs = totalSeconds % 60
+    let frameNumber = Int((seconds.truncatingRemainder(dividingBy: 1)) * frameRate)
+    
+    if hours > 0 {
+        return String(format: "%02d:%02d:%02d:%02d", hours, minutes, secs, frameNumber)
+    } else {
+        return String(format: "%02d:%02d", minutes, secs, frameNumber)
+    }
+}
+
+The time ruler always starts at 0.0 seconds (00:00:00:00).
+
+B. Segment Position (Segment.swift):
+------------------------------------
+Each segment has a compositionStartTime property that defines where it appears 
+in the timeline:
+
+struct Segment: Identifiable, Codable {
+    var compositionStartTime: Double = 0.0  // seconds in composition timeline
+    
+    var compositionEndTime: Double {
+        compositionStartTime + duration
+    }
+}
+
+C. Why Timestamps Don't Start Where Segments Start:
+----------------------------------------------------
+The timeline timecode is GLOBAL to the entire composition, not relative to 
+individual segments. This is by design:
+
+1. The time ruler shows the absolute position in the final video
+2. Segments can be placed anywhere on the timeline (via compositionStartTime)
+3. Gaps can exist between segments (compositionStartTime can have gaps)
+4. Multiple segments can overlap (on different tracks)
+
+Example:
+- Segment A: compositionStartTime = 0.0, duration = 5.0 → appears at 00:00:00:00 to 00:00:05:00
+- Segment B: compositionStartTime = 10.0, duration = 3.0 → appears at 00:00:10:00 to 00:00:13:00
+- Gap between A and B: 5 seconds of black (00:00:05:00 to 00:00:10:00)
+
+D. Total Duration Calculation (TimelineView.swift):
+-------------------------------------------------
+The timeline calculates total duration from the maximum end time of all segments:
+
+private var totalDuration: Double {
+    let enabledSegments = projectViewModel.segments.filter { $0.enabled }
+    guard !enabledSegments.isEmpty else { return 0.0 }
+    
+    // Find maximum end time (compositionStartTime + duration)
+    let maxEndTime = enabledSegments.map { 
+        $0.compositionStartTime + $0.duration 
+    }.max() ?? 0.0
+    
+    return maxEndTime
+}
+
+E. Playhead Position (PlayerViewModel):
+----------------------------------------
+The playhead position is synced with PlayerViewModel.currentTime, which represents 
+the current playback position in the composition timeline (starting at 0.0).
+
+================================================================================
+3. TRACK SYSTEM AND LABELS
+================================================================================
+
+OVERVIEW:
+The track system supports multiple video and audio tracks. Tracks are labeled 
+as V1, V2, V3... (video) and A1, A2, A3... (audio). Higher-index video tracks 
+overlay lower tracks in the composition.
+
+HOW IT WORKS:
+
+A. Track Model (TimelineTrack.swift):
+-------------------------------------
+struct TimelineTrack: Identifiable, Hashable, Codable {
+    let id: UUID
+    var kind: TrackKind        // .video or .audio
+    var index: Int             // 0-based index within its kind (V0, V1, A0, A1, etc.)
+    var segments: [Segment.ID]  // References to segments by ID
+    var isMuted: Bool = false
+    var isLocked: Bool = false
+    
+    var name: String {
+        switch kind {
+        case .video:
+            return "V\(index + 1)"  // V1, V2, V3...
+        case .audio:
+            return "A\(index + 1)"  // A1, A2, A3...
+        }
+    }
+}
+
+enum TrackKind: String, Codable {
+    case video
+    case audio
+}
+
+B. Initial Track Setup:
+-----------------------
+When a project is created, it should start with ONE video track (V1). This is 
+handled in Project initialization or ProjectViewModel.
+
+C. Adding New Tracks (ProjectViewModel.swift):
+----------------------------------------------
+Users can add new video or audio tracks:
+
+func addTrack(kind: TrackKind) {
+    let existingTracks = project.tracks.filter { $0.kind == kind }
+    let nextIndex = existingTracks.count
+    let newTrack = TimelineTrack(kind: kind, index: nextIndex, segments: [])
+    project.tracks.append(newTrack)
+    updateTrackIndices(for: kind)
+    hasUserModifiedAutoEdit = true
+    objectWillChange.send()
+}
+
+func updateTrackIndices(for kind: TrackKind) {
+    var currentKindIndex = 0
+    for i in project.tracks.indices {
+        if project.tracks[i].kind == kind {
+            project.tracks[i].index = currentKindIndex
+            currentKindIndex += 1
+        }
+    }
+}
+
+D. Track Headers (TrackHeaderView.swift):
+-----------------------------------------
+Track headers display "V" or "A" with the track number:
+
+struct TrackHeaderView: View {
+    let track: TimelineTrack
+    
+    var body: some View {
+        VStack(spacing: 4) {
+            Text(track.kind == .video ? "V" : "A")
+                .font(.system(size: 12, weight: .bold))
+            Text("\(track.index + 1)")  // Display 1-based index
+                .font(.system(size: 9, weight: .medium))
+        }
+    }
+}
+
+E. Track Stacking (Composition):
+-------------------------------
+Higher-index video tracks overlay lower tracks in the final composition. This 
+is handled in TransitionService when building the video composition:
+
+- V1 (index 0) is the base layer
+- V2 (index 1) overlays V1
+- V3 (index 2) overlays V2
+- etc.
+
+The AVFoundation composition automatically handles this layering when multiple 
+video tracks are inserted at the same time.
+
+F. Add Track Button (AddTrackButton.swift):
+-------------------------------------------
+Users can add tracks via buttons in the timeline:
+
+struct AddTrackButton: View {
+    let kind: TrackKind
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "plus")
+                Text(kind == .video ? "V" : "A")
+            }
+        }
+    }
+}
+
+================================================================================
+4. SEGMENT MOVEMENT AND STACKING
+================================================================================
+
+OVERVIEW:
+Segments can be moved horizontally (along the timeline) and can be stacked 
+vertically (on different tracks). Segments on the same track cannot overlap 
+(they would need to be on different tracks).
+
+HOW IT WORKS:
+
+A. Segment Position (Segment.swift):
+------------------------------------
+Segments have an explicit compositionStartTime that defines their position:
+
+struct Segment: Identifiable, Codable {
+    var compositionStartTime: Double = 0.0  // Absolute position in timeline
+    
+    var compositionEndTime: Double {
+        compositionStartTime + duration
+    }
+}
+
+B. Moving Segments (ProjectViewModel.swift):
+-------------------------------------------
+Segments can be moved by updating their compositionStartTime:
+
+func updateSegmentCompositionStartTime(_ segmentID: Segment.ID, newStartTime: Double) {
+    guard let segmentIndex = project.segments.firstIndex(where: { $0.id == segmentID }) else { return }
+    var updatedSegment = project.segments[segmentIndex]
+    updatedSegment.compositionStartTime = newStartTime
+    project.segments[segmentIndex] = updatedSegment
+    // Rebuild happens when moveSegment is called on drag end
+}
+
+func moveSegment(_ segmentID: Segment.ID, to newStartTime: Double) {
+    updateSegmentCompositionStartTime(segmentID, newStartTime)
+    debouncedRebuild()  // Rebuild composition after move
+}
+
+C. Segment Stacking (Different Tracks):
+-----------------------------------------
+Segments can be stacked by placing them on different tracks:
+
+- Track V1: Segment A at compositionStartTime = 0.0
+- Track V2: Segment B at compositionStartTime = 0.0 (overlays Segment A)
+
+This is handled by:
+1. Assigning segments to different tracks (via TimelineTrack.segments)
+2. The composition builder inserts segments from all tracks
+3. AVFoundation layers tracks in order (V1 base, V2 overlay, etc.)
+
+D. Segment Overlap Detection:
+-----------------------------
+Currently, segments on the same track CAN overlap if their compositionStartTime 
+ranges intersect. The UI should prevent this or handle it gracefully.
+
+Example overlap:
+- Segment A: compositionStartTime = 0.0, duration = 5.0 (ends at 5.0)
+- Segment B: compositionStartTime = 3.0, duration = 4.0 (ends at 7.0)
+- Overlap: 3.0 to 5.0 (2 seconds)
+
+E. Drag and Drop (TimelineSegmentView.swift):
+---------------------------------------------
+Segments can be dragged to new positions:
+
+.gesture(
+    DragGesture()
+        .onChanged { value in
+            // Update position during drag
+            let newStartTime = calculateStartTime(from: value.translation)
+            projectViewModel.updateSegmentCompositionStartTime(segment.id, newStartTime: newStartTime)
+        }
+        .onEnded { value in
+            // Finalize position and rebuild
+            let finalStartTime = calculateStartTime(from: value.translation)
+            projectViewModel.moveSegment(segment.id, to: finalStartTime)
+        }
+)
+
+================================================================================
+5. TIMELINE DURATION LIMITS (WHY NOT ENDLESS?)
+================================================================================
+
+OVERVIEW:
+The timeline is NOT endless - it has a maximum duration based on the segments 
+in the project. This is by design to ensure accurate preview and export.
+
+HOW IT WORKS:
+
+A. Duration Calculation (TimelineView.swift):
+---------------------------------------------
+The timeline duration is calculated from the maximum end time of all segments:
+
+private var totalDuration: Double {
+    let enabledSegments = projectViewModel.segments.filter { $0.enabled }
+    guard !enabledSegments.isEmpty else { return 0.0 }
+    
+    // Find maximum end time (compositionStartTime + duration)
+    let maxEndTime = enabledSegments.map { 
+        $0.compositionStartTime + $0.duration 
+    }.max() ?? 0.0
+    
+    return maxEndTime
+}
+
+B. Why Not Endless:
+-------------------
+1. ACCURATE PREVIEW: The preview player needs a fixed duration to function 
+   correctly. AVPlayer requires a valid duration for seeking and playback.
+
+2. EXPORT ACCURACY: Export needs to know the exact duration to create the 
+   final video file. An "endless" timeline would require dynamic duration 
+   calculation, which is complex and error-prone.
+
+3. PERFORMANCE: A fixed duration allows the timeline to calculate pixel 
+   positions accurately (pixels per second) without infinite scrolling issues.
+
+4. USER EXPECTATION: Users expect the timeline to represent the actual video 
+   length. An endless timeline would be confusing.
+
+C. Extending the Timeline:
+---------------------------
+To extend the timeline, users must:
+1. Add segments to the timeline
+2. The timeline automatically extends to include the new segments
+3. Gaps can be added between segments (gap segments)
+
+Example:
+- Initial: Segment A ends at 5.0 seconds → timeline shows 0.0 to 5.0
+- Add Segment B at 10.0 seconds → timeline extends to 0.0 to 13.0 (if B is 3 seconds)
+- Add gap segment at 5.0 for 2 seconds → timeline still shows 0.0 to 13.0
+
+D. Composition Duration (PlayerViewModel.swift):
+------------------------------------------------
+The AVComposition duration is calculated from segments:
+
+func buildComposition(from project: Project) async throws -> AVMutableComposition {
+    let composition = AVMutableComposition()
+    
+    // Insert segments into composition
+    for segment in project.segments.filter({ $0.enabled }) {
+        let startTime = CMTime(seconds: segment.compositionStartTime, preferredTimescale: 600)
+        let duration = CMTime(seconds: segment.duration, preferredTimescale: 600)
+        // ... insert segment into composition
+    }
+    
+    // Composition duration is automatically set by AVFoundation based on inserted segments
+    return composition
+}
+
+E. Maximum Duration:
+--------------------
+There is no hard-coded maximum duration limit. The timeline can be as long 
+as needed, limited only by:
+- Available memory
+- AVFoundation limits (practical limit is hours of video)
+- User's patience (very long timelines may be slow to render)
+
+================================================================================
+6. KEY ARCHITECTURAL DECISIONS
+================================================================================
+
+A. Preview Observation Rule:
+-----------------------------
+CRITICAL: Any view showing video preview, timecode, transport controls, or 
+playback playhead MUST observe PlayerViewModel directly, NOT indirectly through 
+ProjectViewModel.
+
+This ensures:
+- Preview stays in sync with playback
+- Timecode is accurate
+- Playhead position is correct
+
+B. Composition Rebuild Strategy:
+--------------------------------
+- immediateRebuild(): For transform effects (real-time preview)
+- debouncedRebuild(): For segment moves, timing changes (avoids excessive rebuilds)
+
+C. Segment Model Design:
+-----------------------
+- Segments have explicit compositionStartTime (allows gaps, overlaps)
+- Segments reference clips by ID (non-destructive editing)
+- Segments store effects/transforms (non-destructive)
+
+D. Track System:
+----------------
+- Tracks are containers for segment IDs (not direct references)
+- Track indices determine layering order
+- Tracks can be muted/locked independently
+
+================================================================================
+7. CODE FILE REFERENCES
+================================================================================
+
+Key Files:
+- Models/Segment.swift - Segment data model
+- Models/TimelineTrack.swift - Track data model
+- ViewModels/ProjectViewModel.swift - Timeline state management
+- ViewModels/PlayerViewModel.swift - Playback and composition
+- Services/TransitionService.swift - Transform calculations
+- Views/InspectorPanel.swift - Transform UI controls
+- Views/TimeRulerView.swift - Timecode display
+- Views/TimelineView.swift - Main timeline view
+- Views/EnhancedTimelineView.swift - Enhanced timeline with tools
+- Views/TimelineTrackView.swift - Individual track rendering
+- Views/TimelineSegmentView.swift - Individual segment rendering
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
+

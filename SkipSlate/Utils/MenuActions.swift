@@ -185,14 +185,18 @@ class MenuActions: ObservableObject {
     
     func undo() {
         print("[Menu] Undo triggered")
-        // TODO: Wire to undo manager
-        NSApp.sendAction(Selector(("undo:")), to: nil, from: nil)
+        // Call ProjectViewModel undo if available
+        if let projectViewModel = appViewModel?.projectViewModel {
+            projectViewModel.undo()
+        }
     }
     
     func redo() {
         print("[Menu] Redo triggered")
-        // TODO: Wire to undo manager
-        NSApp.sendAction(Selector(("redo:")), to: nil, from: nil)
+        // Call ProjectViewModel redo if available
+        if let projectViewModel = appViewModel?.projectViewModel {
+            projectViewModel.redo()
+        }
     }
     
     func cut() {

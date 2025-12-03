@@ -5,10 +5,10 @@
 //  Created by Tee Forest on 12/2/25.
 //
 //  MODULE: Timeline
-//  - Time ruler component for timeline with timestamps and playhead
-//  - Shows time markers based on zoom level
-//  - Syncs playhead with PlayerViewModel.currentTime
-//  - Supports clicking to seek and snap-to-grid
+//  - Time ruler component - THE "HOUSE" for the timeline
+//  - Extends to a fixed duration (5 hours) independent of content
+//  - Segments live within this ruler
+//  - Supports clicking to seek within content bounds
 //
 
 import SwiftUI
@@ -16,77 +16,117 @@ import AVFoundation
 
 struct TimeRulerView: View {
     @ObservedObject var playerViewModel: PlayerViewModel
-    let totalDuration: Double
-    let zoomLevel: TimelineZoom
-    let baseTimelineWidth: CGFloat
+    let timelineViewModel: TimelineViewModel
+    
+    // THE "HOUSE" - Fixed ruler duration (e.g., 5 hours)
+    let rulerDuration: Double
+    
+    // THE "RESIDENTS" - Actual content duration (for seeking limits)
+    let contentDuration: Double
+    
+    let earliestStartTime: Double
     let onSeek: (Double) -> Void
-    let frameRate: Double  // Frames per second (e.g., 24, 25, 30)
+    let frameRate: Double
     
     // Height of the ruler
     private let rulerHeight: CGFloat = 30
     
+    // Fixed pixels per second for the ruler
+    private let basePixelsPerSecond: CGFloat = 80.0
+    
     init(
         playerViewModel: PlayerViewModel,
-        totalDuration: Double,
-        zoomLevel: TimelineZoom,
-        baseTimelineWidth: CGFloat,
+        timelineViewModel: TimelineViewModel,
+        rulerDuration: Double,
+        contentDuration: Double,
+        earliestStartTime: Double = 0.0,
         onSeek: @escaping (Double) -> Void,
-        frameRate: Double = 30.0  // Default to 30 fps
+        frameRate: Double = 30.0
     ) {
         self.playerViewModel = playerViewModel
-        self.totalDuration = totalDuration
-        self.zoomLevel = zoomLevel
-        self.baseTimelineWidth = baseTimelineWidth
+        self.timelineViewModel = timelineViewModel
+        self.rulerDuration = rulerDuration
+        self.contentDuration = contentDuration
+        self.earliestStartTime = earliestStartTime
         self.onSeek = onSeek
         self.frameRate = frameRate
     }
     
-    // Calculate content width based on zoom
-    private var contentWidth: CGFloat {
-        baseTimelineWidth * zoomLevel.scale
-    }
-    
-    // Calculate pixels per second
+    // Pixels per second with zoom applied
     private var pixelsPerSecond: CGFloat {
-        guard totalDuration > 0 else { return 100 }
-        return contentWidth / CGFloat(totalDuration)
+        basePixelsPerSecond * timelineViewModel.zoomLevel.scale
     }
     
-    // Calculate frame duration
-    private var frameDuration: Double {
-        1.0 / frameRate
+    // Total width of the ruler
+    private var rulerWidth: CGFloat {
+        CGFloat(rulerDuration) * pixelsPerSecond
     }
     
-    // Calculate time interval between markers based on zoom
+    var body: some View {
+        ZStack(alignment: .leading) {
+            // STATIC: Background and markers (cached, doesn't update with playhead)
+            TimeRulerMarkersView(
+                rulerDuration: rulerDuration,
+                earliestStartTime: earliestStartTime,
+                pixelsPerSecond: pixelsPerSecond,
+                zoomLevel: timelineViewModel.zoomLevel,
+                rulerHeight: rulerHeight,
+                rulerWidth: rulerWidth,
+                frameRate: frameRate
+            )
+            
+            // DYNAMIC: Playhead only (updates smoothly with video)
+            TimeRulerPlayhead(
+                playerViewModel: playerViewModel,
+                contentDuration: contentDuration,
+                pixelsPerSecond: pixelsPerSecond,
+                rulerHeight: rulerHeight
+            )
+        }
+        .frame(width: rulerWidth, height: rulerHeight)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    let clickedX = value.location.x
+                    let clickedTime = Double(clickedX) / Double(pixelsPerSecond)
+                    let clampedTime = max(0, min(contentDuration, clickedTime))
+                    onSeek(clampedTime)
+                }
+                .onEnded { value in
+                    let clickedX = value.location.x
+                    let clickedTime = Double(clickedX) / Double(pixelsPerSecond)
+                    let clampedTime = max(0, min(contentDuration, clickedTime))
+                    onSeek(clampedTime)
+                }
+        )
+    }
+}
+
+// MARK: - Static Markers View (doesn't observe PlayerViewModel)
+private struct TimeRulerMarkersView: View {
+    let rulerDuration: Double
+    let earliestStartTime: Double
+    let pixelsPerSecond: CGFloat
+    let zoomLevel: TimelineZoom
+    let rulerHeight: CGFloat
+    let rulerWidth: CGFloat
+    let frameRate: Double
+    
+    // Calculate time interval between major markers based on zoom
     private var timeInterval: Double {
         switch zoomLevel {
         case .fit:
-            // At fit, show markers every 5 seconds
-            return 5.0
+            return 10.0  // Every 10 seconds
         case .x2:
-            // At 2x, show markers every 2 seconds
-            return 2.0
+            return 5.0   // Every 5 seconds
         case .x4:
-            // At 4x, show markers every 1 second, or every 10 frames if zoomed in more
-            return 1.0
+            return 2.0   // Every 2 seconds
         }
     }
     
-    // Calculate sub-interval for minor ticks (half of main interval)
     private var subInterval: Double {
         return timeInterval / 2.0
-    }
-    
-    // Calculate tick interval for frame-level precision at high zoom
-    private var frameTickInterval: Double {
-        switch zoomLevel {
-        case .fit:
-            return 1.0  // 1 second ticks at fit
-        case .x2:
-            return 0.5  // 0.5 second ticks at 2x
-        case .x4:
-            return frameDuration * 10  // 10 frame ticks at 4x
-        }
     }
     
     var body: some View {
@@ -94,175 +134,88 @@ struct TimeRulerView: View {
             // Background
             Rectangle()
                 .fill(AppColors.panelBackground)
-                .frame(height: rulerHeight)
+                .frame(width: rulerWidth, height: rulerHeight)
             
-            // Time markers and labels
-            ForEach(timeMarkers, id: \.time) { marker in
-                TimeMarker(
-                    time: marker.time,
-                    xPosition: marker.xPosition,
-                    isMajor: marker.isMajor,
-                    height: rulerHeight,
-                    frameRate: frameRate
-                )
-            }
-            
-            // Playhead indicator
-            if totalDuration > 0 {
-                let currentTime = playerViewModel.currentTime
-                let playheadX = CGFloat(currentTime) * pixelsPerSecond
+            // Time markers - rendered as a single cached layer for performance
+            Canvas { context, size in
+                let startTime = floor(earliestStartTime / timeInterval) * timeInterval
                 
-                Rectangle()
-                    .fill(AppColors.tealAccent)
-                    .frame(width: 2)
-                    .offset(x: playheadX)
-                    .frame(height: rulerHeight)
-                
-                // Playhead triangle
-                Triangle()
-                    .fill(AppColors.tealAccent)
-                    .frame(width: 8, height: 6)
-                    .offset(x: playheadX - 4, y: rulerHeight - 6)
-            }
-        }
-        .frame(width: contentWidth, height: rulerHeight)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    // Seek to clicked position
-                    let clickedX = value.location.x
-                    let clickedTime = Double(clickedX / pixelsPerSecond)
-                    let clampedTime = max(0, min(totalDuration, clickedTime))
-                    
-                    // Snap to nearest marker if close enough
-                    let snappedTime = snapToGrid(time: clampedTime)
-                    onSeek(snappedTime)
-                }
-                .onEnded { value in
-                    // Final seek on release
-                    let clickedX = value.location.x
-                    let clickedTime = Double(clickedX / pixelsPerSecond)
-                    let clampedTime = max(0, min(totalDuration, clickedTime))
-                    let snappedTime = snapToGrid(time: clampedTime)
-                    onSeek(snappedTime)
-                }
-        )
-    }
-    
-    // Generate time markers based on zoom and duration
-    private var timeMarkers: [TimeMarkerData] {
-        var markers: [TimeMarkerData] = []
-        
-        guard totalDuration > 0 else { return markers }
-        
-        // Generate major markers (every timeInterval)
-        var currentTime: Double = 0
-        while currentTime <= totalDuration {
-            let xPosition = CGFloat(currentTime) * pixelsPerSecond
-            markers.append(TimeMarkerData(
-                time: currentTime,
-                xPosition: xPosition,
-                isMajor: true
-            ))
-            currentTime += timeInterval
-        }
-        
-        // Generate minor markers (every subInterval, but skip if they overlap with major)
-        currentTime = subInterval
-        while currentTime <= totalDuration {
-            // Only add if it's not too close to a major marker
-            let isCloseToMajor = markers.contains { abs($0.time - currentTime) < 0.1 }
-            if !isCloseToMajor {
-                let xPosition = CGFloat(currentTime) * pixelsPerSecond
-                markers.append(TimeMarkerData(
-                    time: currentTime,
-                    xPosition: xPosition,
-                    isMajor: false
-                ))
-            }
-            currentTime += subInterval
-        }
-        
-        // At high zoom (4x), add frame-level ticks
-        if zoomLevel == .x4 {
-            currentTime = frameTickInterval
-            while currentTime <= totalDuration {
-                // Skip if too close to existing markers
-                let isCloseToExisting = markers.contains { abs($0.time - currentTime) < 0.05 }
-                if !isCloseToExisting {
+                // Draw major markers
+                var currentTime = max(0, startTime)
+                while currentTime <= rulerDuration {
                     let xPosition = CGFloat(currentTime) * pixelsPerSecond
-                    markers.append(TimeMarkerData(
-                        time: currentTime,
-                        xPosition: xPosition,
-                        isMajor: false
-                    ))
+                    
+                    // Major tick
+                    let tickRect = CGRect(x: xPosition, y: 0, width: 1.5, height: rulerHeight * 0.6)
+                    context.fill(Path(tickRect), with: .color(AppColors.secondaryText.opacity(0.8)))
+                    
+                    // Time label
+                    let timeText = formatTime(currentTime)
+                    let text = Text(timeText)
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(AppColors.secondaryText)
+                    context.draw(text, at: CGPoint(x: xPosition + 4, y: rulerHeight - 8), anchor: .leading)
+                    
+                    currentTime += timeInterval
                 }
-                currentTime += frameTickInterval
+                
+                // Draw minor markers
+                currentTime = max(0, startTime) + subInterval
+                while currentTime <= rulerDuration {
+                    let xPosition = CGFloat(currentTime) * pixelsPerSecond
+                    
+                    // Check if close to major marker
+                    let closestMajor = round(currentTime / timeInterval) * timeInterval
+                    if abs(currentTime - closestMajor) > 0.1 {
+                        let tickRect = CGRect(x: xPosition, y: 0, width: 1, height: rulerHeight * 0.4)
+                        context.fill(Path(tickRect), with: .color(AppColors.secondaryText.opacity(0.4)))
+                    }
+                    
+                    currentTime += subInterval
+                }
             }
-        }
-        
-        // Sort by time
-        return markers.sorted { $0.time < $1.time }
-    }
-    
-    // Snap time to nearest grid point
-    private func snapToGrid(time: Double) -> Double {
-        // Snap to nearest subInterval
-        let snapped = round(time / subInterval) * subInterval
-        return max(0, min(totalDuration, snapped))
-    }
-    
-    // Helper struct for marker data
-    private struct TimeMarkerData {
-        let time: Double
-        let xPosition: CGFloat
-        let isMajor: Bool
-    }
-}
-
-// Individual time marker view
-private struct TimeMarker: View {
-    let time: Double
-    let xPosition: CGFloat
-    let isMajor: Bool
-    let height: CGFloat
-    let frameRate: Double
-    
-    var body: some View {
-        ZStack(alignment: .leading) {
-            // Tick mark
-            Rectangle()
-                .fill(AppColors.secondaryText.opacity(isMajor ? 0.8 : 0.4))
-                .frame(width: isMajor ? 1.5 : 1, height: isMajor ? height * 0.6 : height * 0.4)
-                .offset(x: xPosition, y: 0)
-            
-            // Time label (only for major markers, positioned at bottom)
-            if isMajor {
-                Text(timeString(from: time))
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundColor(AppColors.secondaryText)
-                    .offset(x: xPosition + 2, y: height - 12)
-            }
+            .frame(width: rulerWidth, height: rulerHeight)
         }
     }
     
-    private func timeString(from seconds: Double) -> String {
-        // Convert to timecode format: HH:MM:SS:FF
+    private func formatTime(_ seconds: Double) -> String {
         let totalSeconds = Int(seconds)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let secs = totalSeconds % 60
         
-        // Calculate frame number
-        let frameNumber = Int((seconds.truncatingRemainder(dividingBy: 1)) * frameRate)
-        
         if hours > 0 {
-            return String(format: "%02d:%02d:%02d:%02d", hours, minutes, secs, frameNumber)
+            return String(format: "%d:%02d:%02d", hours, minutes, secs)
         } else {
-            return String(format: "%02d:%02d:%02d", minutes, secs, frameNumber)
+            return String(format: "%d:%02d", minutes, secs)
         }
     }
 }
 
-// Triangle shape is defined in PlayheadIndicator.swift - reuse that one
+// MARK: - Dynamic Playhead View (observes PlayerViewModel for smooth updates)
+private struct TimeRulerPlayhead: View {
+    @ObservedObject var playerViewModel: PlayerViewModel
+    let contentDuration: Double
+    let pixelsPerSecond: CGFloat
+    let rulerHeight: CGFloat
+    
+    var body: some View {
+        if contentDuration > 0 {
+            let playheadX = CGFloat(playerViewModel.currentTime) * pixelsPerSecond
+            
+            // Playhead line
+            Rectangle()
+                .fill(AppColors.tealAccent)
+                .frame(width: 2, height: rulerHeight)
+                .offset(x: playheadX)
+            
+            // Playhead triangle
+            Triangle()
+                .fill(AppColors.tealAccent)
+                .frame(width: 8, height: 6)
+                .offset(x: playheadX - 4, y: rulerHeight - 6)
+        }
+    }
+}
+
+// Triangle shape is defined in PlayheadIndicator.swift

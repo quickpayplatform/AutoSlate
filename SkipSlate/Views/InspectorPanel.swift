@@ -334,6 +334,7 @@ struct EffectsInspector: View {
                                     updateSegmentEffects { effects in
                                         effects.scale = newValue
                                     }
+                                    projectViewModel.debugLogSelectedSegment("Scale slider changed")
                                 }
                             ),
                             in: 0.5...3.0
@@ -359,6 +360,7 @@ struct EffectsInspector: View {
                                     updateSegmentEffects { effects in
                                         effects.positionX = newValue
                                     }
+                                    projectViewModel.debugLogSelectedSegment("Position X slider changed")
                                 }
                             ),
                             in: -100.0...100.0
@@ -384,6 +386,7 @@ struct EffectsInspector: View {
                                     updateSegmentEffects { effects in
                                         effects.positionY = newValue
                                     }
+                                    projectViewModel.debugLogSelectedSegment("Position Y slider changed")
                                 }
                             ),
                             in: -100.0...100.0
@@ -409,6 +412,7 @@ struct EffectsInspector: View {
                                     updateSegmentEffects { effects in
                                         effects.rotation = newValue
                                     }
+                                    projectViewModel.debugLogSelectedSegment("Rotation slider changed")
                                 }
                             ),
                             in: -180.0...180.0
@@ -416,13 +420,23 @@ struct EffectsInspector: View {
                     }
                     
                     Button("Reset Transform") {
-                        // CRASH-PROOF: Safe update with nil check
-                        updateSegmentEffects { effects in
-                            effects.scale = 1.0
-                            effects.positionX = 0.0
-                            effects.positionY = 0.0
-                            effects.rotation = 0.0
-                        }
+                        // Reset all transform properties: effects and scaleToFillFrame
+                        guard let selectedSegment = projectViewModel.selectedSegment else { return }
+                        var updatedSegment = selectedSegment
+                        
+                        // Reset effects
+                        updatedSegment.effects.scale = 1.0
+                        updatedSegment.effects.positionX = 0.0
+                        updatedSegment.effects.positionY = 0.0
+                        updatedSegment.effects.rotation = 0.0
+                        
+                        // Reset scaleToFillFrame
+                        updatedSegment.transform.scaleToFillFrame = false
+                        
+                        // CRITICAL: Use immediate rebuild for real-time preview
+                        projectViewModel.updateSegmentImmediate(updatedSegment)
+                        
+                        print("SkipSlate: ✅ Reset Transform - all transform properties reset to defaults")
                     }
                     .buttonStyle(.plain)
                     .foregroundColor(.white)
@@ -565,10 +579,21 @@ struct EffectsInspector: View {
     }
     
     private func updateSegmentEffects(_ update: (inout SegmentEffects) -> Void) {
-        guard let selectedSegment = projectViewModel.selectedSegment else { return }
-        var updatedSegment = selectedSegment
-        update(&updatedSegment.effects)
-        projectViewModel.updateSegment(updatedSegment)
+        guard var segment = projectViewModel.selectedSegment else {
+            print("SkipSlate: [Transform DEBUG] No selected segment to update effects")
+            return
+        }
+        
+        // STEP 2.1: Debug logging before and after UI update
+        print("SkipSlate: [Transform DEBUG] Before UI update – segment id=\(segment.id), effects: scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rot=\(segment.effects.rotation), scaleToFill=\(segment.transform.scaleToFillFrame)")
+        
+        update(&segment.effects)
+        
+        print("SkipSlate: [Transform DEBUG] After UI update – segment id=\(segment.id), effects: scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rot=\(segment.effects.rotation), scaleToFill=\(segment.transform.scaleToFillFrame)")
+        
+        // CRITICAL: Use immediate rebuild for transform effects to enable real-time preview
+        // Transform effects (scale, position, rotation) need immediate visual feedback
+        projectViewModel.updateSegmentImmediate(segment)
     }
 }
 

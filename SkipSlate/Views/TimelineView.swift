@@ -33,18 +33,25 @@ struct TimelineView: View {
                 HStack(spacing: 4) {
                     ForEach(TimelineTool.allCases) { tool in
                         Button(action: {
+                            print("SkipSlate: 🔧 [TimelineView] Button clicked for tool: \(tool.name) (id: \(tool.id))")
+                            print("SkipSlate: 🔧 [TimelineView] Current tool before change: \(projectViewModel.selectedTimelineTool.name)")
+                            
                             // Update tool selection
                             projectViewModel.selectedTimelineTool = tool
-                            print("SkipSlate: 🔧 Tool changed to: \(tool.name)")
-                            print("SkipSlate: 🔧 Tool cursor: \(tool.cursor)")
+                            
+                            print("SkipSlate: 🔧 [TimelineView] Tool changed to: \(tool.name)")
+                            print("SkipSlate: 🔧 [TimelineView] ProjectViewModel.selectedTimelineTool is now: \(projectViewModel.selectedTimelineTool.name)")
                             
                             // Immediately update cursor to match selected tool
                             tool.cursor.push()
                             
                             // Clear any segment selection when switching tools (except segmentSelector)
+                            // Use async to avoid "Publishing changes from within view updates" warning
                             if tool != .segmentSelector {
-                                projectViewModel.selectedSegmentIDs.removeAll()
-                                projectViewModel.selectedSegment = nil
+                                DispatchQueue.main.async {
+                                    projectViewModel.selectedSegmentIDs.removeAll()
+                                    projectViewModel.selectedSegment = nil
+                                }
                             }
                         }) {
                             Image(systemName: tool.iconName)
@@ -213,17 +220,6 @@ struct TimelineView: View {
                             .frame(width: contentWidth, alignment: .leading)
                         }
                         
-                        // Playhead indicator (spans all tracks)
-                        if totalDuration > 0 {
-                            PlayheadIndicator(
-                                playerVM: projectViewModel.playerVM,
-                                totalDuration: totalDuration,
-                                timelineWidth: contentWidth,
-                                zoomLevel: zoomLevel,
-                                trackHeight: availableHeight,
-                                selectedTool: projectViewModel.selectedTimelineTool
-                            )
-                        }
                     }
                 }
             }
@@ -239,17 +235,22 @@ struct TimelineView: View {
     private var totalDuration: Double {
         // Calculate total duration including gaps (max end time of any segment)
         let enabledSegments = projectViewModel.segments.filter { $0.enabled }
-        guard !enabledSegments.isEmpty else { return 0.0 }
+        guard !enabledSegments.isEmpty else { return 60.0 } // Minimum 60 seconds even when empty
         
         // Find maximum end time (compositionStartTime + duration)
-        let maxEndTime = enabledSegments.map { $0.compositionStartTime + $0.duration }.max() ?? 0.0
+        var maxEndTime = enabledSegments.map { $0.compositionStartTime + $0.duration }.max() ?? 0.0
         
         // Fallback: if no segments have explicit start times, sum durations (backward compatibility)
         if maxEndTime == 0.0 {
-        return enabledSegments.reduce(0) { $0 + $1.duration }
+            maxEndTime = enabledSegments.reduce(0) { $0 + $1.duration }
         }
         
-        return maxEndTime
+        // ENDLESS TIMELINE: Add extra space beyond the last segment
+        // This allows users to drag segments to new positions beyond the current end
+        let minDuration: Double = 60.0 // Minimum 60 seconds
+        let extraSpace: Double = 30.0  // Extra space beyond last segment
+        
+        return max(minDuration, maxEndTime + extraSpace)
     }
     
     private func timeString(from seconds: Double) -> String {

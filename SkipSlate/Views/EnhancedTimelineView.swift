@@ -27,8 +27,13 @@ struct EnhancedTimelineView: View {
     
     init(projectViewModel: ProjectViewModel, selectedTool: EditingTool = .select) {
         self.projectViewModel = projectViewModel
+        // CRITICAL: Observe PlayerViewModel directly for Preview Observation Rule
         self._playerViewModel = ObservedObject(wrappedValue: projectViewModel.playerVM)
-        // Map EditingTool to EditorTool
+        
+        // NOTE: Don't force tool selection in init - let user's selection persist
+        // The tool selection is managed by ProjectViewModel and should persist across view updates
+        
+        // Map EditingTool to EditorTool (for TimelineViewModel compatibility)
         _timelineViewModel = StateObject(wrappedValue: {
             let vm = TimelineViewModel()
             switch selectedTool {
@@ -46,6 +51,10 @@ struct EnhancedTimelineView: View {
     private let maxTrackHeight: CGFloat = 200
     private let baseTimelineWidth: CGFloat = 1000
     
+    // TIMELINE "HOUSE" - Fixed ruler duration (5 hours) independent of content
+    // The ruler is always this long - segments just live within it
+    private let rulerDuration: Double = 18000.0  // 5 hours in seconds
+    
     // Get height for a track (with default fallback)
     private func trackHeight(for trackID: UUID) -> CGFloat {
         return projectViewModel.trackHeights[trackID] ?? defaultTrackHeight
@@ -53,30 +62,69 @@ struct EnhancedTimelineView: View {
     
     var body: some View {
         VStack(spacing: 0) {
-            // Timeline header with tools, zoom controls, and add track buttons
-            HStack(spacing: 12) {
+            timelineHeader
+            Divider()
+            timeRulerSection
+            Divider()
+            timelineContent
+        }
+        .background(AppColors.background)
+        .onAppear {
+            setupKeyboardNavigation()
+        }
+    }
+    
+    // MARK: - View Components
+    
+    @ViewBuilder
+    private var timelineHeader: some View {
+        HStack(spacing: 12) {
                 Text("Timeline")
                     .font(.headline)
                     .foregroundColor(AppColors.primaryText)
                 
-                // Editor tool buttons (Select, Blade, Trim)
+                // Timeline tool buttons (using TimelineTool from ProjectViewModel)
                 HStack(spacing: 4) {
-                    ForEach(EditorTool.allCases) { tool in
+                    ForEach(TimelineTool.allCases) { tool in
                         Button(action: {
-                            timelineViewModel.currentTool = tool
+                            print("SkipSlate: 🔧 Button clicked for tool: \(tool.name) (id: \(tool.id))")
+                            print("SkipSlate: 🔧 Current tool before change: \(projectViewModel.selectedTimelineTool.name)")
+                            
+                            // Update tool selection in ProjectViewModel
+                            projectViewModel.selectedTimelineTool = tool
+                            
+                            print("SkipSlate: 🔧 Tool changed to: \(tool.name)")
+                            print("SkipSlate: 🔧 ProjectViewModel.selectedTimelineTool is now: \(projectViewModel.selectedTimelineTool.name)")
+                            
+                            // Immediately update cursor to match selected tool
                             tool.cursor.push()
+                            
+                            // Clear any segment selection when switching tools (except segmentSelector)
+                            // Use async to avoid "Publishing changes from within view updates" warning
+                            if tool != .segmentSelector {
+                                DispatchQueue.main.async {
+                                    projectViewModel.selectedSegmentIDs.removeAll()
+                                    projectViewModel.selectedSegment = nil
+                                }
+                            }
                         }) {
                             Image(systemName: tool.iconName)
                                 .font(.system(size: 14, weight: .medium))
                                 .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
-                        .foregroundColor(timelineViewModel.currentTool == tool ? AppColors.tealAccent : AppColors.secondaryText)
+                        .foregroundColor(projectViewModel.selectedTimelineTool == tool ? AppColors.tealAccent : AppColors.secondaryText)
                         .background(
                             RoundedRectangle(cornerRadius: 4)
-                                .fill(timelineViewModel.currentTool == tool ? AppColors.tealAccent.opacity(0.2) : Color.clear)
+                                .fill(projectViewModel.selectedTimelineTool == tool ? AppColors.tealAccent.opacity(0.2) : Color.clear)
                         )
                         .help(tool.helpText)
+                        .onChange(of: projectViewModel.selectedTimelineTool) { oldTool, newTool in
+                            // Update cursor when tool changes from elsewhere
+                            if newTool == tool {
+                                tool.cursor.push()
+                            }
+                        }
                     }
                 }
                 .padding(.horizontal, 8)
@@ -117,46 +165,64 @@ struct EnhancedTimelineView: View {
             .padding(.horizontal)
             .padding(.vertical, 8)
             .background(AppColors.panelBackground)
+    }
+    
+    // Track header width - must match TrackHeaderView width for alignment
+    private let trackHeaderWidth: CGFloat = 58  // 50px header + 8px padding
+    
+    @ViewBuilder
+    private var timeRulerSection: some View {
+        // Time ruler - THE "HOUSE" - Always exists, segments live within it
+        HStack(spacing: 0) {
+            // Empty spacer to align with track header
+            Rectangle()
+                .fill(Color.clear)
+                .frame(width: trackHeaderWidth, height: 30)
             
-            Divider()
-            
-            // Time ruler (only show if we have segments)
-            if !projectViewModel.segments.isEmpty && totalDuration > 0 {
-                GeometryReader { geometry in
-                    let baseTimelineWidth: CGFloat = 1000
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        TimeRulerView(
-                            playerViewModel: playerViewModel,
-                            totalDuration: totalDuration,
-                            zoomLevel: timelineViewModel.zoomLevel,
-                            baseTimelineWidth: baseTimelineWidth,
-                            onSeek: { time in
-                                playerViewModel.seek(to: time, precise: true)
-                            },
-                            frameRate: 30.0  // TODO: Get from project settings
-                        )
-                        .frame(width: baseTimelineWidth * timelineViewModel.zoomLevel.scale)
-                    }
-                }
-                .frame(height: 30)
-                
-                Divider()
+            // Time ruler content - uses fixed rulerDuration for the "house"
+            ScrollView(.horizontal, showsIndicators: false) {
+                TimeRulerView(
+                    playerViewModel: playerViewModel,
+                    timelineViewModel: timelineViewModel,
+                    rulerDuration: rulerDuration,  // Fixed ruler length (the "house")
+                    contentDuration: totalDuration,  // Actual content for seeking limits
+                    earliestStartTime: earliestSegmentStartTime,
+                    onSeek: { time in
+                        playerViewModel.seek(to: time, precise: true)
+                    },
+                    frameRate: 30.0
+                )
             }
-            
-            // Multi-track timeline
-            if projectViewModel.segments.isEmpty {
-                VStack {
-                    Spacer()
-                    Text("No segments yet. Import media and run Auto Edit.")
-                        .foregroundColor(AppColors.secondaryText)
-                        .font(.caption)
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-            } else {
-                GeometryReader { geometry in
-                    let contentWidth = baseTimelineWidth * timelineViewModel.zoomLevel.scale
-                    let availableHeight = geometry.size.height
+        }
+        .frame(height: 30)
+        .onAppear {
+            timelineViewModel.baseTimelineWidth = 1000
+        }
+    }
+    
+    // Fixed pixels per second for timeline (must match TimeRulerView)
+    private let basePixelsPerSecond: CGFloat = 80.0
+    
+    // Timeline width based on fixed ruler duration
+    private var timelineWidth: CGFloat {
+        CGFloat(rulerDuration) * basePixelsPerSecond * timelineViewModel.zoomLevel.scale
+    }
+    
+    @ViewBuilder
+    private var timelineContent: some View {
+        // Multi-track timeline - THE "HOUSE" where segments live
+        if projectViewModel.segments.isEmpty {
+            VStack {
+                Spacer()
+                Text("No segments yet. Import media and run Auto Edit.")
+                    .foregroundColor(AppColors.secondaryText)
+                    .font(.caption)
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+        } else {
+            GeometryReader { geometry in
+                let availableHeight = geometry.size.height
                     
                     ZStack(alignment: .leading) {
                         // Global cursor update based on selected tool
@@ -170,30 +236,41 @@ struct EnhancedTimelineView: View {
                                 }
                             }
                         
-                        // Scrollable track content
+                        // Scrollable track content - uses fixed timelineWidth (the "house")
                         ScrollView(.horizontal, showsIndicators: true) {
                             VStack(spacing: 0) {
-                                ForEach(Array(projectViewModel.tracks.enumerated()), id: \.element.id) { index, track in
+                                // Sort tracks: video tracks first (V1, V2, V3...), then audio tracks (A1, A2...)
+                                let sortedTracks = projectViewModel.tracks.sorted { track1, track2 in
+                                    if track1.kind != track2.kind {
+                                        // Video tracks come before audio tracks
+                                        return track1.kind == .video && track2.kind == .audio
+                                    }
+                                    // Within same kind, sort by index
+                                    return track1.index < track2.index
+                                }
+                                
+                                ForEach(Array(sortedTracks.enumerated()), id: \.element.id) { index, track in
                                     let currentTrackHeight = trackHeight(for: track.id)
                                     
                                     TimelineTrackView(
                                         track: track,
                                         projectViewModel: projectViewModel,
                                         playerViewModel: playerViewModel,
-                                        totalDuration: totalDuration,
+                                        timelineViewModel: timelineViewModel,
+                                        totalDuration: rulerDuration,  // Use fixed ruler duration
                                         zoomLevel: timelineViewModel.zoomLevel,
                                         trackHeight: currentTrackHeight,
-                                        timelineWidth: contentWidth
+                                        timelineWidth: timelineWidth  // Use fixed timeline width
                                     )
                                     .frame(height: currentTrackHeight)
                                     
-                                    // Resizable divider between tracks
-                                    if index < projectViewModel.tracks.count - 1 {
+                                    // Thin grid divider between tracks (1px instead of 4px)
+                                    if index < sortedTracks.count - 1 {
                                         Rectangle()
                                             .fill(Color.clear)
-                                            .frame(height: 4)
+                                            .frame(height: 1)
                                             .contentShape(Rectangle())
-                                            .background(Color(white: 0.3))
+                                            .background(Color(white: 0.2))
                                             .onHover { hovering in
                                                 if hovering {
                                                     NSCursor.resizeUpDown.push()
@@ -211,37 +288,12 @@ struct EnhancedTimelineView: View {
                                             )
                                 }
                             }
-                            }
-                            .frame(width: contentWidth, alignment: .leading)
+                            .frame(width: timelineWidth, alignment: .leading)  // Fixed timeline width
                         }
                         
-                        // Playhead indicator (spans all tracks)
-                        if totalDuration > 0 {
-                            // Convert EditorTool to TimelineTool for PlayheadIndicator
-                            let timelineTool: TimelineTool = {
-                                switch timelineViewModel.currentTool {
-                                case .segmentSelect: return .cursor
-                                case .blade: return .cut
-                                case .trim: return .trim
-                                }
-                            }()
-                            
-                            PlayheadIndicator(
-                                playerVM: playerViewModel,
-                                totalDuration: totalDuration,
-                                timelineWidth: contentWidth,
-                                zoomLevel: timelineViewModel.zoomLevel,
-                                trackHeight: availableHeight,
-                                selectedTool: timelineTool
-                            )
-                        }
                     }
                 }
             }
-        }
-        .background(AppColors.background)
-        .onAppear {
-            setupKeyboardNavigation()
         }
     }
     
@@ -251,13 +303,29 @@ struct EnhancedTimelineView: View {
     
     // Calculate total duration from all enabled segments across all tracks
     // Uses compositionStartTime + duration to find the maximum end time
+    // ENDLESS TIMELINE: Always provide extra space beyond the last segment
     private var totalDuration: Double {
         let enabledSegments = projectViewModel.segments.filter { $0.enabled }
-        guard !enabledSegments.isEmpty else { return 0 }
+        guard !enabledSegments.isEmpty else { return 60.0 } // Minimum 60 seconds even when empty
         
         // Find the maximum end time (compositionStartTime + duration)
         let maxEndTime = enabledSegments.map { $0.compositionStartTime + $0.duration }.max() ?? 0
-        return maxEndTime
+        
+        // ENDLESS TIMELINE: Add 30 seconds of extra space beyond the last segment
+        // This allows users to drag segments to new positions beyond the current end
+        let minDuration: Double = 60.0 // Minimum 60 seconds
+        let extraSpace: Double = 30.0  // Extra space beyond last segment
+        
+        return max(minDuration, maxEndTime + extraSpace)
+    }
+    
+    // Calculate earliest segment start time - timestamps should start where segments begin
+    private var earliestSegmentStartTime: Double {
+        let enabledSegments = projectViewModel.segments.filter { $0.enabled }
+        guard !enabledSegments.isEmpty else { return 0 }
+        
+        // Find the minimum compositionStartTime - this is where timestamps should start
+        return enabledSegments.map { $0.compositionStartTime }.min() ?? 0
     }
     
     private func isSegmentPlaying(_ segment: Segment) -> Bool {

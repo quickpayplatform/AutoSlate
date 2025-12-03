@@ -16,6 +16,45 @@
 import SwiftUI
 import AVFoundation
 
+/// Unified geometry model for timeline rendering
+/// Ensures time ruler ticks, segment positions, and playhead all use the same math
+struct TimelineGeometry {
+    /// Pixels per second (scaled by zoom)
+    var pixelsPerSecond: CGFloat
+    
+    /// Left edge of visible viewport, in seconds (for horizontal scrolling)
+    var visibleStartTime: Double
+    
+    /// Total duration of the timeline
+    var totalDuration: Double
+    
+    /// Base timeline width (before zoom)
+    var baseTimelineWidth: CGFloat
+    
+    /// Calculate X position for a given time
+    /// - Parameter time: Time in seconds (composition timeline)
+    /// - Returns: X position in pixels relative to timeline start
+    func xPosition(for time: Double) -> CGFloat {
+        let clampedTime = max(0.0, time)
+        let relativeTime = clampedTime - visibleStartTime
+        return CGFloat(relativeTime) * pixelsPerSecond
+    }
+    
+    /// Calculate time for a given X position
+    /// - Parameter xPosition: X position in pixels
+    /// - Returns: Time in seconds (composition timeline)
+    func time(for xPosition: CGFloat) -> Double {
+        let relativeTime = Double(xPosition) / Double(pixelsPerSecond)
+        return relativeTime + visibleStartTime
+    }
+    
+    /// Content width (base width * zoom)
+    var contentWidth: CGFloat {
+        let basePixelsPerSecond = totalDuration > 0 ? baseTimelineWidth / CGFloat(totalDuration) : 80
+        return baseTimelineWidth * (pixelsPerSecond / basePixelsPerSecond)
+    }
+}
+
 /// Timeline editing tools
 enum EditorTool: String, CaseIterable, Identifiable {
     case segmentSelect  // Dedicated Select Segment tool
@@ -95,6 +134,18 @@ class TimelineViewModel: ObservableObject {
     // Zoom state
     @Published var zoomLevel: TimelineZoom = .fit
     
+    // Viewport state (for horizontal scrolling)
+    @Published var visibleStartTime: Double = 0.0
+    
+    // Base timeline width (pixels) - can be set from view
+    var baseTimelineWidth: CGFloat = 1000.0
+    
+    // Base pixels per second (before zoom) - calculated from baseTimelineWidth and totalDuration
+    func basePixelsPerSecond(totalDuration: Double) -> CGFloat {
+        guard totalDuration > 0 else { return 80.0 }
+        return baseTimelineWidth / CGFloat(totalDuration)
+    }
+    
     // Track management (read-only - tracks are owned by ProjectViewModel)
     // This view model provides helper methods for track operations
     
@@ -166,5 +217,23 @@ class TimelineViewModel: ObservableObject {
         // TODO: Implement effect application
         // This will iterate over all segments and apply the effect
         print("SkipSlate: Applying effect to all segments: \(segments.count)")
+    }
+    
+    // MARK: - Timeline Geometry
+    
+    /// Calculate unified geometry for timeline rendering
+    /// - Parameter totalDuration: Total duration of the timeline in seconds
+    /// - Returns: TimelineGeometry with correct pixel-to-time conversion
+    func geometry(totalDuration: Double) -> TimelineGeometry {
+        // Calculate pixels per second based on zoom
+        let basePPS = basePixelsPerSecond(totalDuration: totalDuration)
+        let pixelsPerSecond = basePPS * zoomLevel.scale
+        
+        return TimelineGeometry(
+            pixelsPerSecond: pixelsPerSecond,
+            visibleStartTime: visibleStartTime,
+            totalDuration: totalDuration,
+            baseTimelineWidth: baseTimelineWidth
+        )
     }
 }

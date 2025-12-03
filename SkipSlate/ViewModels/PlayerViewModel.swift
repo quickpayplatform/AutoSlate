@@ -199,6 +199,7 @@ class PlayerViewModel: NSObject, ObservableObject {
     private func projectHash(_ project: Project) -> Int {
         // Create a simple hash based on segments and settings
         // CRITICAL: Include compositionStartTime to detect segment position changes
+        // CRITICAL: Include transform effects to detect transform changes
         var hasher = Hasher()
         hasher.combine(project.segments.count)
         for segment in project.segments {
@@ -208,6 +209,13 @@ class PlayerViewModel: NSObject, ObservableObject {
             hasher.combine(segment.enabled)
             hasher.combine(segment.compositionStartTime) // CRITICAL: Include position in hash
             hasher.combine(segment.kind.rawValue) // Include segment kind (clip vs gap)
+            
+            // CRITICAL: Include transform effects in hash to trigger rebuild on transform changes
+            hasher.combine(segment.effects.scale)
+            hasher.combine(segment.effects.positionX)
+            hasher.combine(segment.effects.positionY)
+            hasher.combine(segment.effects.rotation)
+            hasher.combine(segment.transform.scaleToFillFrame)
         }
         hasher.combine(project.colorSettings.exposure)
         hasher.combine(project.colorSettings.contrast)
@@ -255,6 +263,11 @@ class PlayerViewModel: NSObject, ObservableObject {
             return
         }
         
+        // CRITICAL: Capture existing playback state BEFORE replacing the playerItem
+        let previousTime = currentTime
+        let wasPlaying = isPlaying
+        print("SkipSlate: [Move DEBUG] updatePlayer – previousTime=\(previousTime), wasPlaying=\(wasPlaying)")
+        
         // Check if composition actually changed
         let compositionDuration = composition.duration
         if compositionDuration == lastCompositionDuration && playerItem != nil {
@@ -291,6 +304,8 @@ class PlayerViewModel: NSObject, ObservableObject {
             // Only apply if render size is valid
             if videoComposition.renderSize.width > 0 && videoComposition.renderSize.height > 0 {
                 playerItem.videoComposition = videoComposition
+                // STEP 1.4 & 5.2: Debug logging after setting videoComposition
+                print("SkipSlate: [Transform DEBUG] PlayerItem videoComposition set with renderSize=\(videoComposition.renderSize)")
                 print("SkipSlate: Applied video composition with color settings (render size: \(videoComposition.renderSize))")
                 print("SkipSlate: Color settings - exposure: \(currentColorSettings.exposure), contrast: \(currentColorSettings.contrast), saturation: \(currentColorSettings.saturation)")
                 print("SkipSlate: Color grading - hue: \(currentColorSettings.colorHue)°, saturation: \(currentColorSettings.colorSaturation)")
@@ -368,31 +383,7 @@ class PlayerViewModel: NSObject, ObservableObject {
             print("SkipSlate: ================================")
         }
         
-        // Add KVO observer for player item status
-        playerItem.addObserver(
-            self,
-            forKeyPath: "status",
-            options: [.initial, .new],
-            context: &playerItemStatusContext
-        )
-        
-        // Monitor for failed playback
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(playerItemFailedToPlay(_:)),
-            name: .AVPlayerItemFailedToPlayToEndTime,
-            object: playerItem
-        )
-        
-        // Monitor for playback completion
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(playerItemDidPlayToEnd(_:)),
-            name: .AVPlayerItemDidPlayToEndTime,
-            object: playerItem
-        )
-        
-        self.playerItem = playerItem
+        // NOTE: Observers will be attached in attachPlayerItemObservers() before replaceCurrentItem
         
         // Remove old time observer if it exists
         if let observer = timeObserver {
@@ -440,9 +431,13 @@ class PlayerViewModel: NSObject, ObservableObject {
             }
         }
         
+        // CRITICAL: Attach observers to new item BEFORE replacing
+        attachPlayerItemObservers(playerItem)
+        
         // Replace the current item on the existing player
         player?.replaceCurrentItem(with: playerItem)
-        print("SkipSlate: Replaced player item on existing player")
+        self.playerItem = playerItem
+        print("SkipSlate: [Move DEBUG] updatePlayer – replaced currentItem, seeking to previousTime=\(previousTime)")
         
         // CRITICAL: Verify audio mix is still set after replacing
         if let audioMix = playerItem.audioMix {
@@ -462,8 +457,18 @@ class PlayerViewModel: NSObject, ObservableObject {
             }
         }
         
-        // Always setup time observer after setting player item
+        // CRITICAL: Always setup time observer after setting player item
         setupTimeObserver()
+        
+        // CRITICAL: Seek to previous time and restore playing state
+        seek(to: previousTime, precise: true) { [weak self] completed in
+            guard let self = self, completed else { return }
+            if wasPlaying {
+                self.play()
+            } else {
+                self.pause()
+            }
+        }
         
         // Use the actual composition duration, or fall back to calculated duration if needed
         let itemDuration = playerItem.asset.duration
@@ -1658,22 +1663,48 @@ class PlayerViewModel: NSObject, ObservableObject {
             }
         }
         
-        print("SkipSlate: Time observer set up with interval: \(CMTimeGetSeconds(interval))s")
+        print("SkipSlate: [Move DEBUG] setupTimeObserver – time observer set up with interval: \(CMTimeGetSeconds(interval))s")
+    }
+    
+    /// Attach KVO and notification observers to a player item
+    private func attachPlayerItemObservers(_ item: AVPlayerItem) {
+        print("SkipSlate: [Move DEBUG] attachPlayerItemObservers – attaching observers to new item")
         
-        print("SkipSlate: Time observer setup complete")
-        
-        // Also observe player item status to ensure it's ready
-        if let playerItem = playerItem {
-            NotificationCenter.default.addObserver(
-                self,
-                selector: #selector(playerItemDidReachEnd),
-                name: .AVPlayerItemDidPlayToEndTime,
-                object: playerItem
-            )
+        // Remove old observers if they exist and are different from the new item
+        if let oldItem = self.playerItem, oldItem !== item {
+            // Safely remove KVO observer - check if we actually observed this item
+            // We track this by checking if oldItem is the same instance we stored
+            // If observer wasn't registered, removeObserver will throw, but we can't catch in Swift
+            // So we use a runtime check: only remove if the item is still valid
+            // In practice, we should only call this when we know we added observers
+            // The safest approach: only remove if oldItem is not nil and different from new item
+            // Note: removeObserver can throw, but we can't catch in pure Swift
+            // We'll rely on the fact that we only call this when we know observers were added
+            oldItem.removeObserver(self, forKeyPath: "status", context: &playerItemStatusContext)
+            
+            // Always try to remove notifications (safe to call even if not registered)
+            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: oldItem)
+            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: oldItem)
         }
         
-        // Observe rate changes to update isPlaying
-        player.addObserver(self, forKeyPath: "rate", options: [.new], context: nil)
+        // Add status KVO
+        item.addObserver(self, forKeyPath: "status", options: [.initial, .new], context: &playerItemStatusContext)
+        
+        // Add end / fail notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerItemDidPlayToEnd(_:)),
+            name: .AVPlayerItemDidPlayToEndTime,
+            object: item
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerItemFailedToPlay(_:)),
+            name: .AVPlayerItemFailedToPlayToEndTime,
+            object: item
+        )
+        
+        print("SkipSlate: [Move DEBUG] attachPlayerItemObservers – observers attached")
     }
     
     func play() {

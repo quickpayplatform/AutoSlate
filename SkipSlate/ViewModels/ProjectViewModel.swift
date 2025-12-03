@@ -42,10 +42,98 @@ class ProjectViewModel: ObservableObject {
     @Published var hasUserModifiedAutoEdit: Bool = false  // True when user manually edits the timeline
     @Published var lastAutoEditRunID: UUID?  // Track previous auto-edit run
     
-    // Undo/Redo support
+    // Undo/Redo support - custom snapshot-based system
     @Published var canUndo: Bool = false
     @Published var canRedo: Bool = false
-    private let undoManager = UndoManager()
+    
+    // Project snapshot for undo/redo
+    struct ProjectSnapshot {
+        let project: Project
+        let selectedSegmentID: Segment.ID?
+        let currentTime: Double
+    }
+    
+    private var undoStack: [ProjectSnapshot] = [] {
+        didSet {
+            canUndo = !undoStack.isEmpty
+        }
+    }
+    private var redoStack: [ProjectSnapshot] = [] {
+        didSet {
+            canRedo = !redoStack.isEmpty
+        }
+    }
+    
+    // MARK: - Grid Snapping
+    
+    /// Grid interval in seconds (snap segments to this interval)
+    var gridInterval: Double {
+        // Base grid: 0.5 seconds (half-second marks)
+        // Can be made configurable later
+        return 0.5
+    }
+    
+    /// Snap a time value to the nearest grid point
+    func snapToGrid(_ time: Double) -> Double {
+        let snapped = round(time / gridInterval) * gridInterval
+        return max(0, snapped)
+    }
+    
+    // MARK: - Undo/Redo Implementation
+    
+    private func makeSnapshot() -> ProjectSnapshot {
+        ProjectSnapshot(
+            project: project,
+            selectedSegmentID: selectedSegment?.id,
+            currentTime: playerVM.currentTime
+        )
+    }
+    
+    private func restoreSnapshot(_ snapshot: ProjectSnapshot) {
+        self.project = snapshot.project
+        
+        if let id = snapshot.selectedSegmentID {
+            self.selectedSegment = project.segments.first(where: { $0.id == id })
+        } else {
+            self.selectedSegment = nil
+        }
+        
+        playerVM.seek(to: snapshot.currentTime, precise: true)
+        immediateRebuild()
+    }
+    
+    func performUndoableChange(_ description: String = "", change: () -> Void) {
+        let snapshotBefore = makeSnapshot()
+        undoStack.append(snapshotBefore)
+        redoStack.removeAll() // clear redo on new edit
+        
+        print("SkipSlate: [Undo DEBUG] push undo – \(description), stack size = \(undoStack.count)")
+        
+        change()
+        
+        // After change, rebuild composition
+        immediateRebuild()
+    }
+    
+    func undo() {
+        guard let snapshot = undoStack.popLast() else { return }
+        let current = makeSnapshot()
+        redoStack.append(current)
+        
+        print("SkipSlate: [Undo DEBUG] undo – new undoStack size = \(undoStack.count), redoStack size = \(redoStack.count)")
+        
+        restoreSnapshot(snapshot)
+    }
+    
+    func redo() {
+        guard let snapshot = redoStack.popLast() else { return }
+        let current = makeSnapshot()
+        undoStack.append(current)
+        
+        print("SkipSlate: [Undo DEBUG] redo – new undoStack size = \(undoStack.count), redoStack size = \(redoStack.count)")
+        
+        restoreSnapshot(snapshot)
+    }
     
     private var playerViewModel: PlayerViewModel?
     private let autoEditService = AutoEditService.shared
@@ -86,48 +174,52 @@ class ProjectViewModel: ObservableObject {
             return
         }
         
-        // Create a new segment instance with the specified composition start time
-        let newSegment = Segment(
-            id: UUID(), // New ID for the timeline instance
-            sourceClipID: sourceClipID,
-            sourceStart: segment.sourceStart,
-            sourceEnd: segment.sourceEnd,
-            enabled: segment.enabled,
-            colorIndex: segment.colorIndex,
-            effects: segment.effects,
-            compositionStartTime: compositionStartTime
-        )
-        
-        // Add to project segments
-        project.segments.append(newSegment)
-        
-        // Find appropriate track and add segment ID to it
-        // For now, add to the first video track (or create one if needed)
-        if project.tracks.isEmpty {
-            // Create a video track if none exists
-            let videoTrack = TimelineTrack(
-                id: UUID(),
-                type: .videoPrimary,
-                name: "V1",
-                segments: [newSegment.id]
+        // Wrap in undoable change
+        performUndoableChange("Add segment to timeline") {
+            // Create a new segment instance with the specified composition start time
+            let newSegment = Segment(
+                id: UUID(), // New ID for the timeline instance
+                sourceClipID: sourceClipID,
+                sourceStart: segment.sourceStart,
+                sourceEnd: segment.sourceEnd,
+                enabled: segment.enabled,
+                colorIndex: segment.colorIndex,
+                effects: segment.effects,
+                compositionStartTime: compositionStartTime
             )
-            project.tracks.append(videoTrack)
-        } else {
-            // Add to first track
-            if !project.tracks[0].segments.contains(newSegment.id) {
-                project.tracks[0].segments.append(newSegment.id)
+            
+            // Add to project segments
+            project.segments.append(newSegment)
+            
+            // Find appropriate track and add segment ID to it
+            // For now, add to the first video track (or create one if needed)
+            // CRITICAL: Auto-edit and manual segment addition should use V1 (base video track)
+            // Find or create the base video track (kind: .video, index: 0)
+            if let baseVideoTrackIndex = project.tracks.firstIndex(where: { $0.kind == .video && $0.index == 0 }) {
+                // Add to existing V1 track
+                if !project.tracks[baseVideoTrackIndex].segments.contains(newSegment.id) {
+                    project.tracks[baseVideoTrackIndex].segments.append(newSegment.id)
+                }
+            } else {
+                // Create V1 track if it doesn't exist
+                let videoTrack = TimelineTrack(
+                    kind: .video,
+                    index: 0,
+                    segments: [newSegment.id]
+                )
+                project.tracks.append(videoTrack)
             }
+            
+            hasUserModifiedAutoEdit = true
         }
-        
-        hasUserModifiedAutoEdit = true
-        immediateRebuild()
-        
         print("SkipSlate: ✅ Added segment to timeline at \(compositionStartTime)s")
     }
     
     /// Move a segment to a new position in the timeline
     /// CRASH-PROOF: Comprehensive validation and error handling
     func moveSegment(_ segmentID: Segment.ID, to newCompositionStartTime: Double) {
+        print("SkipSlate: [Move DEBUG] moveSegment id=\(segmentID) to time=\(newCompositionStartTime)")
+        
         // CRASH-PROOF: Validate inputs
         guard newCompositionStartTime >= 0 && newCompositionStartTime.isFinite else {
             print("SkipSlate: ⚠️ Cannot move segment - invalid composition start time: \(newCompositionStartTime)")
@@ -179,43 +271,36 @@ class ProjectViewModel: ObservableObject {
             // Continue anyway - user may want to overlap (it will layer)
         }
         
-        // CRASH-PROOF: Update segment composition start time
-        var updatedSegment = segment
-        updatedSegment.compositionStartTime = newCompositionStartTime
-        
-        // Update in project
-        project.segments[segmentIndex] = updatedSegment
-        
-        // Mark as modified
-        hasUserModifiedAutoEdit = true
-        
-        // Rebuild composition
-        immediateRebuild()
+        // Wrap in undoable change
+        performUndoableChange("Move segment") {
+            // Update segment composition start time
+            updateSegmentCompositionStartTime(segmentID, newStartTime: max(0.0, newCompositionStartTime))
+            
+            // Mark as modified
+            hasUserModifiedAutoEdit = true
+        }
         
         print("SkipSlate: ✅ Moved segment \(segmentID) to composition time \(newCompositionStartTime)s")
     }
     
     /// Update a segment's composition start time (used during drag operations)
     /// CRASH-PROOF: Lightweight update for real-time dragging feedback
+    /// IMPORTANT: Only edits the segment, nothing else - no auto-compacting or neighbor adjustments
     func updateSegmentCompositionStartTime(_ segmentID: Segment.ID, newStartTime: Double) {
-        // CRASH-PROOF: Validate inputs
-        guard newStartTime >= 0 && newStartTime.isFinite else {
-            print("SkipSlate: ⚠️ Cannot update segment - invalid start time: \(newStartTime)")
+        guard let idx = project.segments.firstIndex(where: { $0.id == segmentID }) else {
+            print("SkipSlate: [Move DEBUG] updateSegmentCompositionStartTime – segment not found id=\(segmentID)")
             return
         }
         
-        // CRASH-PROOF: Find and update segment
-        guard let segmentIndex = project.segments.firstIndex(where: { $0.id == segmentID }) else {
-            print("SkipSlate: ⚠️ Cannot update segment - segment not found: \(segmentID)")
-            return
-        }
-        
-        var updatedSegment = project.segments[segmentIndex]
-        updatedSegment.compositionStartTime = newStartTime
-        project.segments[segmentIndex] = updatedSegment
-        
-        // Don't rebuild during drag - only update on end
-        // Rebuild will happen when moveSegment is called on drag end
+        print("SkipSlate: [Move DEBUG] Before move – segment index=\(idx), oldStart=\(project.segments[idx].compositionStartTime)")
+        project.segments[idx].compositionStartTime = newStartTime
+        print("SkipSlate: [Move DEBUG] After move – segment index=\(idx), newStart=\(project.segments[idx].compositionStartTime)")
+    }
+    
+    /// Request immediate rebuild after a timeline edit (segment move, etc.)
+    func requestImmediateRebuildAfterTimelineEdit(reason: String) {
+        print("SkipSlate: [Move DEBUG] requestImmediateRebuildAfterTimelineEdit – reason=\(reason)")
+        immediateRebuild()
     }
     
     /// Get cached analyzed segments grouped by clip ID
@@ -299,6 +384,67 @@ class ProjectViewModel: ObservableObject {
         cachedAnalyzedSegments.removeAll { $0.clipID == clipID }
         cachedAnalyzedClipIDs.remove(clipID)
         print("SkipSlate: 🗑️ Removed clip \(clipID) from cache")
+    }
+    
+    /// Remove a clip from the project completely
+    /// This removes the clip and converts any segments using it to gap segments
+    func removeClip(_ clipID: UUID) {
+        // Find the clip
+        guard let clipIndex = project.clips.firstIndex(where: { $0.id == clipID }),
+              let clip = project.clips.first(where: { $0.id == clipID }) else {
+            print("SkipSlate: ⚠️ Cannot remove clip - clip not found: \(clipID)")
+            return
+        }
+        
+        print("SkipSlate: 🗑️ Starting to remove clip: \(clip.fileName) (ID: \(clipID))")
+        
+        // Find all segments that use this clip
+        let segmentsUsingClip = project.segments.filter { segment in
+            segment.clipID == clipID
+        }
+        
+        print("SkipSlate: 🗑️ Found \(segmentsUsingClip.count) segment(s) using this clip")
+        
+        // Convert segments using this clip to gap segments
+        for segmentIndex in project.segments.indices {
+            if project.segments[segmentIndex].clipID == clipID {
+                let segment = project.segments[segmentIndex]
+                // Create gap segment with same timing
+                let gapSegment = Segment(
+                    id: segment.id, // Keep same ID
+                    gapDuration: segment.duration,
+                    compositionStartTime: segment.compositionStartTime
+                )
+                project.segments[segmentIndex] = gapSegment
+                print("SkipSlate: 🗑️ Converted segment \(segment.id) to gap segment")
+            }
+        }
+        
+        // Remove clip from project
+        project.clips.remove(at: clipIndex)
+        print("SkipSlate: 🗑️ Removed clip from project.clips array (now \(project.clips.count) clip(s))")
+        
+        // Remove from cache
+        removeClipFromCache(clipID)
+        
+        // Remove from selected clips
+        selectedClipIDs.remove(clipID)
+        
+        // Mark as modified
+        hasUserModifiedAutoEdit = true
+        
+        // CRITICAL: Trigger UI update BEFORE rebuild
+        objectWillChange.send()
+        
+        // Rebuild composition if there are segments
+        if !project.segments.isEmpty {
+            print("SkipSlate: 🗑️ Triggering immediate rebuild after clip removal")
+            immediateRebuild()
+        } else {
+            print("SkipSlate: 🗑️ No segments to rebuild")
+        }
+        
+        print("SkipSlate: 🗑️ ✅ Removed clip \(clip.fileName) from project (converted \(segmentsUsingClip.count) segment(s) to gaps)")
     }
     
     // MARK: - Quality Categorized Storage
@@ -495,7 +641,21 @@ class ProjectViewModel: ObservableObject {
             segments: []
         )
         
-        project.tracks.append(newTrack)
+        // Insert video tracks after the last video track, not at the end
+        // This ensures video tracks stay together (V1, V2, V3...) before audio tracks (A1, A2...)
+        if kind == .video {
+            // Find the last video track's position
+            let lastVideoTrackIndex = project.tracks.lastIndex { $0.kind == .video }
+            if let insertIndex = lastVideoTrackIndex {
+                project.tracks.insert(newTrack, at: insertIndex + 1)
+            } else {
+                // No video tracks exist, insert at the beginning
+                project.tracks.insert(newTrack, at: 0)
+            }
+        } else {
+            // Audio tracks go at the end
+            project.tracks.append(newTrack)
+        }
         
         // Update indices of all tracks of the same kind to ensure they're consecutive
         updateTrackIndices(for: kind)
@@ -575,77 +735,76 @@ class ProjectViewModel: ObservableObject {
         
         print("SkipSlate: 🗑️ DELETE called for segments: \(ids)")
         
-        var deletedCount = 0
-        var gapSegmentsCreated: [Segment] = []
-        
-        // Replace any matching clip segments with gap segments of identical time range
-        for index in project.segments.indices.reversed() { // Reverse to avoid index shifting issues
-            let seg = project.segments[index]
-            guard ids.contains(seg.id) else { continue }
+        // Wrap in undoable change
+        performUndoableChange("Delete segments") {
+            var deletedCount = 0
+            var gapSegmentsCreated: [Segment] = []
             
-            // Only convert clips to gaps; skip gaps
-            guard seg.kind == .clip else {
-                print("SkipSlate: ⚠️ Segment \(seg.id) is already a gap, skipping")
-                continue
-            }
-            
-            // Track the clip ID that was deleted (so we don't reuse it in rerun)
-            if let deletedClipID = seg.clipID {
-                deletedClipIDs.insert(deletedClipID)
-                print("SkipSlate: 🚫 Marked clip \(deletedClipID) as deleted - will exclude from rerun auto-edit")
-            }
-            
-            // Create gap segment with same time range as the deleted clip
-            let gapSegment = Segment(
-                gapDuration: seg.duration,
-                compositionStartTime: seg.compositionStartTime
-            )
-            
-            print("SkipSlate: ✅ Replacing clip segment \(seg.id) with gap segment \(gapSegment.id) (duration: \(seg.duration)s, start: \(seg.compositionStartTime)s)")
-            
-            // Replace the clip segment with the gap segment
-            project.segments[index] = gapSegment
-            gapSegmentsCreated.append(gapSegment)
-            deletedCount += 1
-            
-            // Update track references to point to the new gap segment ID
-            for (trackIndex, track) in project.tracks.enumerated() {
-                if let segmentIndex = track.segments.firstIndex(of: seg.id) {
-                    project.tracks[trackIndex].segments[segmentIndex] = gapSegment.id
-                    print("SkipSlate: ✅ Updated track \(trackIndex) reference from \(seg.id) to \(gapSegment.id)")
+            // Replace any matching clip segments with gap segments of identical time range
+            for index in project.segments.indices.reversed() { // Reverse to avoid index shifting issues
+                let seg = project.segments[index]
+                guard ids.contains(seg.id) else { continue }
+                
+                // Only convert clips to gaps; skip gaps
+                guard seg.kind == .clip else {
+                    print("SkipSlate: ⚠️ Segment \(seg.id) is already a gap, skipping")
+                    continue
+                }
+                
+                // Track the clip ID that was deleted (so we don't reuse it in rerun)
+                if let deletedClipID = seg.clipID {
+                    deletedClipIDs.insert(deletedClipID)
+                    print("SkipSlate: 🚫 Marked clip \(deletedClipID) as deleted - will exclude from rerun auto-edit")
+                }
+                
+                // Create gap segment with same time range as the deleted clip
+                let gapSegment = Segment(
+                    gapDuration: seg.duration,
+                    compositionStartTime: seg.compositionStartTime
+                )
+                
+                print("SkipSlate: ✅ Replacing clip segment \(seg.id) with gap segment \(gapSegment.id) (duration: \(seg.duration)s, start: \(seg.compositionStartTime)s)")
+                
+                // Replace the clip segment with the gap segment
+                project.segments[index] = gapSegment
+                gapSegmentsCreated.append(gapSegment)
+                deletedCount += 1
+                
+                // Update track references to point to the new gap segment ID
+                for (trackIndex, track) in project.tracks.enumerated() {
+                    if let segmentIndex = track.segments.firstIndex(of: seg.id) {
+                        project.tracks[trackIndex].segments[segmentIndex] = gapSegment.id
+                        print("SkipSlate: ✅ Updated track \(trackIndex) reference from \(seg.id) to \(gapSegment.id)")
+                    }
                 }
             }
-        }
-        
-        print("SkipSlate: ✅ Deleted \(deletedCount) segments, created \(gapSegmentsCreated.count) gap segments")
-        
-        // Clear selection for deleted segments
-        for segmentID in ids {
-            if selectedSegment?.id == segmentID {
-                selectedSegment = nil
-                print("SkipSlate: ✅ Cleared selectedSegment")
+            
+            print("SkipSlate: ✅ Deleted \(deletedCount) segments, created \(gapSegmentsCreated.count) gap segments")
+            
+            // Clear selection for deleted segments
+            for segmentID in ids {
+                if selectedSegment?.id == segmentID {
+                    selectedSegment = nil
+                    print("SkipSlate: ✅ Cleared selectedSegment")
+                }
+                selectedSegmentIDs.remove(segmentID)
             }
-            selectedSegmentIDs.remove(segmentID)
+            
+            // CRITICAL: Ensure selectedSegment matches the first selectedSegmentID
+            // This keeps them in sync
+            if let firstSelectedID = selectedSegmentIDs.first,
+               let matchingSegment = project.segments.first(where: { $0.id == firstSelectedID }) {
+                selectedSegment = matchingSegment
+                print("SkipSlate: ✅ Synced selectedSegment to first selectedSegmentID: \(firstSelectedID)")
+            } else if selectedSegmentIDs.isEmpty {
+                selectedSegment = nil
+            }
+            
+            print("SkipSlate: ✅ Remaining selectedSegmentIDs: \(selectedSegmentIDs.count)")
+            
+            // Mark that user has modified auto-edit
+            hasUserModifiedAutoEdit = true
         }
-        
-        // CRITICAL: Ensure selectedSegment matches the first selectedSegmentID
-        // This keeps them in sync
-        if let firstSelectedID = selectedSegmentIDs.first,
-           let matchingSegment = project.segments.first(where: { $0.id == firstSelectedID }) {
-            selectedSegment = matchingSegment
-            print("SkipSlate: ✅ Synced selectedSegment to first selectedSegmentID: \(firstSelectedID)")
-        } else if selectedSegmentIDs.isEmpty {
-            selectedSegment = nil
-        }
-        
-        print("SkipSlate: ✅ Remaining selectedSegmentIDs: \(selectedSegmentIDs.count)")
-        
-        // Mark that user has modified auto-edit
-        hasUserModifiedAutoEdit = true
-        
-        // CRITICAL: Rebuild composition to reflect changes
-        print("SkipSlate: ✅ Calling immediateRebuild()")
-        immediateRebuild()
         
         print("SkipSlate: ✅ DELETE COMPLETE - segments count: \(project.segments.count)")
     }
@@ -1133,10 +1292,17 @@ class ProjectViewModel: ObservableObject {
                     var updatedProject = project
                     updatedProject.segments = segmentsWithStartTimes
                     
-                    // Add all new segments to the primary video track (V1)
-                    if let primaryTrackIndex = updatedProject.tracks.firstIndex(where: { $0.type == .videoPrimary }) {
+                    // CRITICAL: Auto-edit writes all segments to V1 (base video track) only
+                    // Users can add V2, V3, etc. manually for overlays
+                    if let baseVideoTrackIndex = updatedProject.tracks.firstIndex(where: { $0.kind == .video && $0.index == 0 }) {
                         let segmentIDs = segmentsWithStartTimes.map { $0.id }
-                        updatedProject.tracks[primaryTrackIndex].segments = segmentIDs
+                        updatedProject.tracks[baseVideoTrackIndex].segments = segmentIDs
+                        print("SkipSlate: ✅ Auto-edit: Added \(segmentIDs.count) segments to V1 (base video track)")
+                    } else {
+                        // Create V1 track if it doesn't exist
+                        let baseVideoTrack = TimelineTrack(kind: .video, index: 0, segments: segmentsWithStartTimes.map { $0.id })
+                        updatedProject.tracks.append(baseVideoTrack)
+                        print("SkipSlate: ✅ Auto-edit: Created V1 track and added \(segmentsWithStartTimes.count) segments")
                     }
                     
                     project = updatedProject
@@ -1269,8 +1435,31 @@ class ProjectViewModel: ObservableObject {
             hasher.combine(segment.sourceStart)
             hasher.combine(segment.sourceEnd)
             hasher.combine(segment.enabled)
+            hasher.combine(segment.compositionStartTime) // Include position in hash
+            
+            // CRITICAL: Include transform effects in hash to trigger rebuild on transform changes
+            hasher.combine(segment.effects.scale)
+            hasher.combine(segment.effects.positionX)
+            hasher.combine(segment.effects.positionY)
+            hasher.combine(segment.effects.rotation)
+            hasher.combine(segment.transform.scaleToFillFrame)
         }
-        return hasher.finalize()
+        let hash = hasher.finalize()
+        
+        // STEP 6: Verification - Log segment transform values when calculating hash
+        // Only log for segments with non-default transform values to reduce noise
+        for segment in project.segments {
+            let hasNonDefaultTransform = segment.effects.scale != 1.0 || 
+                                        segment.effects.positionX != 0.0 || 
+                                        segment.effects.positionY != 0.0 || 
+                                        segment.effects.rotation != 0.0 || 
+                                        segment.transform.scaleToFillFrame
+            if hasNonDefaultTransform {
+                print("SkipSlate: [Transform DEBUG] projectHash() – reading segment id=\(segment.id) from project array: scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rot=\(segment.effects.rotation), scaleToFill=\(segment.transform.scaleToFillFrame)")
+            }
+        }
+        
+        return hash
     }
     
     private func debouncedRebuild() {
@@ -1297,15 +1486,18 @@ class ProjectViewModel: ObservableObject {
     }
     
     private func immediateRebuild() {
+        print("SkipSlate: [Move DEBUG] immediateRebuild – starting")
         rebuildTask?.cancel()
         let currentHash = projectHash()
         if currentHash == lastRebuildHash {
-            print("SkipSlate: Skipping immediate rebuild - no changes detected")
+            print("SkipSlate: [Move DEBUG] Skipping immediate rebuild - no changes detected (hash: \(currentHash))")
             return
         }
+        print("SkipSlate: [Move DEBUG] immediateRebuild() - hash changed from \(lastRebuildHash) to \(currentHash), triggering rebuild")
         // Use playerVM computed property to ensure PlayerViewModel exists
         playerVM.rebuildComposition(from: project)
         lastRebuildHash = currentHash
+        print("SkipSlate: [Move DEBUG] immediateRebuild – finished")
     }
     
     func toggleSegmentEnabled(_ segment: Segment) {
@@ -1330,8 +1522,46 @@ class ProjectViewModel: ObservableObject {
             if selectedSegment?.id == segment.id {
                 selectedSegment = segment
             }
-            debouncedRebuild() // Use debounced rebuild for effects updates
+            // CRITICAL: Use immediate rebuild for transform effects to enable real-time preview
+            // Check if this is a transform-related change
+            let isTransformChange = segment.effects.scale != 1.0 || 
+                                   segment.effects.positionX != 0.0 || 
+                                   segment.effects.positionY != 0.0 || 
+                                   segment.effects.rotation != 0.0 || 
+                                   segment.transform.scaleToFillFrame
+            
+            if isTransformChange {
+                immediateRebuild() // Real-time preview for transform changes
+            } else {
+                debouncedRebuild() // Use debounced rebuild for other effects updates
+            }
         }
+    }
+    
+    /// Update segment with immediate rebuild (for real-time preview)
+    /// Use this specifically for transform effects that need immediate visual feedback
+    func updateSegmentImmediate(_ segment: Segment) {
+        guard let index = project.segments.firstIndex(where: { $0.id == segment.id }) else {
+            print("SkipSlate: [Transform DEBUG] updateSegmentImmediate – segment not found id=\(segment.id)")
+            return
+        }
+        
+        // Wrap in undoable change for transform updates
+        performUndoableChange("Update segment effects") {
+            // STEP 3.1: Debug logging before and after writing segment
+            print("SkipSlate: [Transform DEBUG] updateSegmentImmediate – writing segment at index \(index)")
+            print("SkipSlate: [Transform DEBUG] Previous segment effects: scale=\(project.segments[index].effects.scale), pos=(\(project.segments[index].effects.positionX), \(project.segments[index].effects.positionY)), rot=\(project.segments[index].effects.rotation), scaleToFill=\(project.segments[index].transform.scaleToFillFrame)")
+            
+            project.segments[index] = segment
+            
+            print("SkipSlate: [Transform DEBUG] New segment effects: scale=\(project.segments[index].effects.scale), pos=(\(project.segments[index].effects.positionX), \(project.segments[index].effects.positionY)), rot=\(project.segments[index].effects.rotation), scaleToFill=\(project.segments[index].transform.scaleToFillFrame)")
+            
+            // Update selected segment if it's the same one
+            if selectedSegment?.id == segment.id {
+                selectedSegment = segment
+            }
+        }
+        // Note: immediateRebuild is called by performUndoableChange
     }
     
     func deleteSegment(_ segment: Segment) {
@@ -2115,15 +2345,15 @@ class ProjectViewModel: ObservableObject {
                         // CRITICAL: Update tracks - replace gap IDs with new segment IDs, preserve existing clip segment IDs and their order
                         // CRASH-PROOF: Validate tracks before modification
                         if updatedProject.tracks.isEmpty {
-                            print("SkipSlate: ⚠️ Rerun Auto-Edit - No tracks found, creating default track")
-                            // Create a default video track if none exists
-                            let defaultTrack = TimelineTrack(
-                                id: UUID(),
-                                type: .videoPrimary,
-                                name: "V1",
+                            print("SkipSlate: ⚠️ Rerun Auto-Edit - No tracks found, creating default tracks")
+                            // Create V1 (base video) and A1 (audio) tracks if none exist
+                            let baseVideoTrack = TimelineTrack(
+                                kind: .video,
+                                index: 0,
                                 segments: validSegmentsToAdd.map { $0.id }
                             )
-                            updatedProject.tracks = [defaultTrack]
+                            let audioTrack = TimelineTrack(kind: .audio, index: 0, segments: [])
+                            updatedProject.tracks = [baseVideoTrack, audioTrack]
                         } else {
                             // Update existing tracks
                             for trackIndex in updatedProject.tracks.indices {
@@ -2685,13 +2915,13 @@ class ProjectViewModel: ObservableObject {
     }
     
     func reorderSegments(from source: IndexSet, to destination: Int) {
-        // Legacy method for single-track reordering - find the primary track and reorder there
-        guard let primaryTrackIndex = project.tracks.firstIndex(where: { $0.type == .videoPrimary }) else {
-            print("SkipSlate: No primary video track found")
+        // Legacy method for single-track reordering - find the base video track (V1) and reorder there
+        guard let baseVideoTrackIndex = project.tracks.firstIndex(where: { $0.kind == .video && $0.index == 0 }) else {
+            print("SkipSlate: No base video track (V1) found")
             return
         }
         
-        reorderSegment(inTrack: project.tracks[primaryTrackIndex].id, fromOffsets: source, toOffset: destination)
+        reorderSegment(inTrack: project.tracks[baseVideoTrackIndex].id, fromOffsets: source, toOffset: destination)
     }
     
     func splitSegment(_ segment: Segment, at cutTime: Double) {
@@ -2892,6 +3122,18 @@ class ProjectViewModel: ObservableObject {
                     print("Export error: \(error)")
                 }
             }
+        }
+    }
+}
+
+// MARK: - Transform Debug Helpers
+
+extension ProjectViewModel {
+    func debugLogSelectedSegment(_ note: String) {
+        if let seg = selectedSegment {
+            print("SkipSlate: [Transform DEBUG] \(note) – segment id=\(seg.id), scale=\(seg.effects.scale), pos=(\(seg.effects.positionX), \(seg.effects.positionY)), rot=\(seg.effects.rotation), scaleToFill=\(seg.transform.scaleToFillFrame)")
+        } else {
+            print("SkipSlate: [Transform DEBUG] \(note) – no selected segment")
         }
     }
 }

@@ -139,15 +139,20 @@ struct SkipSlateApp: App {
     @CommandsBuilder
     private func editMenuCommands(menuActions: MenuActions) -> some Commands {
         CommandGroup(replacing: .undoRedo) {
+            let canUndo = menuActions.appViewModel?.projectViewModel?.canUndo ?? false
+            let canRedo = menuActions.appViewModel?.projectViewModel?.canRedo ?? false
+            
             Button("Undo") {
                 menuActions.undo()
             }
             .keyboardShortcut("z", modifiers: .command)
+            .disabled(!canUndo)
             
             Button("Redo") {
                 menuActions.redo()
             }
             .keyboardShortcut("z", modifiers: [.command, .shift])
+            .disabled(!canRedo)
         }
         
         CommandGroup(replacing: .pasteboard) {

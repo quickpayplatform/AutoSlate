@@ -362,25 +362,37 @@ class TransitionService {
                 // Main video track layer
                 let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
                 
-                // Apply Scale to Fill Frame transform if enabled for this segment
-                if segment.transform.scaleToFillFrame {
-                    // Use the track's natural size (already has preferredTransform applied)
-                    let sourceSize = track.naturalSize
-                    let projectSize = CGSize(width: project.resolution.width, height: project.resolution.height)
-                    
-                    // Calculate scale to fill transform
-                    let scaleTransform = transformForScaleToFill(
-                        sourceSize: sourceSize,
-                        projectSize: projectSize
+                // STEP 1.2: Debug logging before transform check
+                print("SkipSlate: [Transform DEBUG] Building layer instructions for segment index \(index), id=\(segment.id)")
+                print("SkipSlate: [Transform DEBUG] Segment transform values – scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rot=\(segment.effects.rotation), scaleToFill=\(segment.transform.scaleToFillFrame)")
+                
+                // CRITICAL: Only apply transform if there are actual transform effects
+                // If no transform effects, let AVFoundation use track's preferredTransform automatically
+                let hasTransformEffects = segment.effects.scale != 1.0 || 
+                                         segment.effects.positionX != 0.0 || 
+                                         segment.effects.positionY != 0.0 || 
+                                         segment.effects.rotation != 0.0 || 
+                                         segment.transform.scaleToFillFrame
+                
+                // STEP 4.1: Debug logging for createVideoCompositionWithTransitions
+                print("SkipSlate: [Transform DEBUG] createVideoCompositionWithTransitions – segment id=\(segment.id) at currentTime=\(currentTime.seconds) has effects: scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rot=\(segment.effects.rotation), scaleToFill=\(segment.transform.scaleToFillFrame)")
+                print("SkipSlate: [Transform DEBUG] hasTransformEffects = \(hasTransformEffects)")
+                
+                if hasTransformEffects {
+                    // Calculate and apply complete transform (scale, position, rotation, scale to fill)
+                    let finalTransform = calculateCompleteTransform(
+                        for: segment,
+                        track: track,
+                        project: project
                     )
                     
-                    // Apply transform at segment start time
-                    // The track already has preferredTransform baked in, so we just apply our scale transform
-                    layerInstruction.setTransform(scaleTransform, at: currentTime)
+                    // Apply transform - this includes preferredTransform, so we replace it entirely
+                    layerInstruction.setTransform(finalTransform, at: currentTime)
                     
-                    print("SkipSlate: TransitionService - Applied Scale to Fill Frame transform for segment \(index) (source: \(sourceSize), project: \(projectSize))")
+                    // STEP 4.2: Keep existing log and ensure it's executed
+                    print("SkipSlate: TransitionService - Applied transform for segment \(index): scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rotation=\(segment.effects.rotation)°, scaleToFill=\(segment.transform.scaleToFillFrame)")
                 }
-                // If scaleToFillFrame is false, don't set transform - let AVFoundation use track's preferredTransform
+                // If no transform effects, don't call setTransform - let AVFoundation use preferredTransform automatically
                 
                 // CRITICAL: Handle opacity carefully to avoid overlapping ramps
                 if isLastSegment && fadeToBlackEnabled && fadeStart < segmentEnd {
@@ -479,17 +491,112 @@ class TransitionService {
     
     // MARK: - Transform Calculations
     
+    /// Calculate complete transform for a segment, combining all transform effects
+    /// - Parameters:
+    ///   - segment: The segment with transform settings
+    ///   - track: The video track (for preferredTransform and natural size)
+    ///   - project: The project (for resolution)
+    /// - Returns: Complete CGAffineTransform combining all effects
+    func calculateCompleteTransform(
+        for segment: Segment,
+        track: AVAssetTrack,
+        project: Project
+    ) -> CGAffineTransform {
+        print("SkipSlate: [Transform DEBUG] calculateCompleteTransform – start for segment id=\(segment.id)")
+        
+        let projectSize = CGSize(width: project.resolution.width, height: project.resolution.height)
+        let projWidth = projectSize.width
+        let projHeight = projectSize.height
+        
+        // CRITICAL: Use oriented source size (respect preferredTransform)
+        // Apply preferredTransform to naturalSize to get the oriented dimensions
+        let orientedSize = track.naturalSize.applying(track.preferredTransform)
+        let srcWidth = abs(orientedSize.width)
+        let srcHeight = abs(orientedSize.height)
+        
+        // Validate sizes
+        guard srcWidth > 0, srcHeight > 0, projWidth > 0, projHeight > 0 else {
+            print("SkipSlate: ⚠️ Invalid sizes for transform - oriented source: \(orientedSize), project: \(projectSize)")
+            return track.preferredTransform // Return preferredTransform only
+        }
+        
+        let centerX = projWidth / 2.0
+        let centerY = projHeight / 2.0
+        
+        // CRITICAL: Build transforms in correct order
+        // Transform concatenation: A.concatenating(B) means B is applied first, then A
+        // Visual order: Scale to Fill -> Manual Scale -> Rotation -> Position -> preferredTransform
+        // Build order (reverse): Start with identity, then add each transform
+        
+        var transform = CGAffineTransform.identity
+        
+        // Step 1: Scale to Fill Frame (if enabled)
+        if segment.transform.scaleToFillFrame {
+            let scaleX = projWidth / srcWidth
+            let scaleY = projHeight / srcHeight
+            let scale = max(scaleX, scaleY) // Use larger scale to ensure full coverage
+            
+            let scaledWidth = srcWidth * scale
+            let scaledHeight = srcHeight * scale
+            let tx = (projWidth - scaledWidth) / 2.0
+            let ty = (projHeight - scaledHeight) / 2.0
+            
+            var t = CGAffineTransform.identity
+            t = t.scaledBy(x: scale, y: scale)
+            t = t.translatedBy(x: tx / scale, y: ty / scale)
+            transform = transform.concatenating(t)
+        }
+        
+        // Step 2: Manual scale around project center
+        if segment.effects.scale != 1.0 {
+            var t = CGAffineTransform.identity
+            t = t.translatedBy(x: centerX, y: centerY)
+            t = t.scaledBy(x: segment.effects.scale, y: segment.effects.scale)
+            t = t.translatedBy(x: -centerX, y: -centerY)
+            transform = transform.concatenating(t)
+        }
+        
+        // Step 3: Rotation around project center
+        if segment.effects.rotation != 0.0 {
+            let radians = segment.effects.rotation * .pi / 180.0
+            var t = CGAffineTransform.identity
+            t = t.translatedBy(x: centerX, y: centerY)
+            t = t.rotated(by: radians)
+            t = t.translatedBy(x: -centerX, y: -centerY)
+            transform = transform.concatenating(t)
+        }
+        
+        // Step 4: Position offset (percent of project size)
+        if segment.effects.positionX != 0.0 || segment.effects.positionY != 0.0 {
+            let tx = (segment.effects.positionX / 100.0) * projWidth
+            let ty = (segment.effects.positionY / 100.0) * projHeight
+            let t = CGAffineTransform(translationX: tx, y: ty)
+            transform = transform.concatenating(t)
+        }
+        
+        // Step 5: Finally, apply preferredTransform (orients the raw media)
+        transform = transform.concatenating(track.preferredTransform)
+        
+        print("SkipSlate: [Transform DEBUG] calculateCompleteTransform – end for segment id=\(segment.id), result transform=\(transform)")
+        
+        return transform
+    }
+    
     /// Calculate transform to scale and center-crop video to fill project frame
     /// - Parameters:
     ///   - sourceSize: Natural size of the source video (after preferredTransform)
     ///   - projectSize: Target project frame size
     /// - Returns: CGAffineTransform that scales and centers the video to fill the frame
-    func transformForScaleToFill(sourceSize: CGSize, projectSize: CGSize) -> CGAffineTransform {
+    /// - Note: This returns a transform relative to identity, not including preferredTransform
+    private func transformForScaleToFill(sourceSize: CGSize, projectSize: CGSize) -> CGAffineTransform {
         // Use absolute sizes
         let srcWidth = abs(sourceSize.width)
         let srcHeight = abs(sourceSize.height)
         let projWidth = projectSize.width
         let projHeight = projectSize.height
+        
+        // STEP 1.3: Debug logging for scale-to-fill calculation
+        print("SkipSlate: [Transform DEBUG] transformForScaleToFill - sourceSize: \(sourceSize) (abs: \(srcWidth)x\(srcHeight)), projectSize: \(projectSize) (abs: \(projWidth)x\(projHeight))")
         
         guard srcWidth > 0, srcHeight > 0, projWidth > 0, projHeight > 0 else {
             print("SkipSlate: ⚠️ Invalid sizes for Scale to Fill - source: \(sourceSize), project: \(projectSize)")
@@ -501,6 +608,8 @@ class TransitionService {
         let scaleY = projHeight / srcHeight
         let scale = max(scaleX, scaleY)  // Use larger scale to ensure full coverage
         
+        print("SkipSlate: [Transform DEBUG] transformForScaleToFill - scaleX=\(scaleX), scaleY=\(scaleY), final scale=\(scale)")
+        
         // Calculate scaled dimensions
         let scaledWidth = srcWidth * scale
         let scaledHeight = srcHeight * scale
@@ -510,10 +619,14 @@ class TransitionService {
         let tx = (projWidth - scaledWidth) / 2.0
         let ty = (projHeight - scaledHeight) / 2.0
         
+        print("SkipSlate: [Transform DEBUG] transformForScaleToFill - scaledSize: \(scaledWidth)x\(scaledHeight), translation: (\(tx), \(ty))")
+        
         // Build transform: scale first, then translate
         var t = CGAffineTransform.identity
         t = t.scaledBy(x: scale, y: scale)
         t = t.translatedBy(x: tx / scale, y: ty / scale)
+        
+        print("SkipSlate: [Transform DEBUG] transformForScaleToFill - result transform: \(t)")
         
         return t
     }

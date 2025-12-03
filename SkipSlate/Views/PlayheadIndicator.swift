@@ -51,12 +51,11 @@ struct PlayheadIndicator: View {
             let xPosition = trackLabelWidth + (timeRatio * effectiveWidth)
             
             ZStack(alignment: .topLeading) {
-                // Vertical line - spans both video and audio tracks
+                // Short vertical line - just a small indicator, not spanning full height
                 Rectangle()
                     .fill(AppColors.tealAccent)
-                    .frame(width: 2)
-                    .frame(height: trackHeight)
-                    .offset(x: xPosition - 1) // Center the 2pt line
+                    .frame(width: 2, height: 20)
+                    .offset(x: xPosition - 1, y: 0)
                 
                 // Arrow/cursor at top
                 Triangle()
@@ -64,12 +63,11 @@ struct PlayheadIndicator: View {
                     .frame(width: 12, height: 8)
                     .offset(x: xPosition - 6, y: -8)
                 
-                // Larger, more precise drag area (40pt wide for easier grabbing)
-                // Only draggable when cursor tool is selected
+                // Drag area for playhead (only active with cursor tool)
                 Rectangle()
                     .fill(Color.clear)
-                    .frame(width: 40, height: trackHeight)
-                    .offset(x: xPosition - 20, y: 0)
+                    .frame(width: 40, height: 30)
+                    .offset(x: xPosition - 20, y: -8)
                     .contentShape(Rectangle())
                     .cursor(selectedTool == .cursor ? .pointingHand : .arrow)
                     .gesture(

@@ -14,10 +14,31 @@ struct TimelineTrackView: View {
     let track: TimelineTrack
     @ObservedObject var projectViewModel: ProjectViewModel
     @ObservedObject var playerViewModel: PlayerViewModel
+    let timelineViewModel: TimelineViewModel?  // Optional - not all views have TimelineViewModel
     let totalDuration: Double
     let zoomLevel: TimelineZoom
     let trackHeight: CGFloat
     let timelineWidth: CGFloat
+    
+    init(
+        track: TimelineTrack,
+        projectViewModel: ProjectViewModel,
+        playerViewModel: PlayerViewModel,
+        timelineViewModel: TimelineViewModel? = nil,
+        totalDuration: Double,
+        zoomLevel: TimelineZoom,
+        trackHeight: CGFloat,
+        timelineWidth: CGFloat
+    ) {
+        self.track = track
+        self.projectViewModel = projectViewModel
+        self.playerViewModel = playerViewModel
+        self.timelineViewModel = timelineViewModel
+        self.totalDuration = totalDuration
+        self.zoomLevel = zoomLevel
+        self.trackHeight = trackHeight
+        self.timelineWidth = timelineWidth
+    }
     
     @State private var draggedSegmentID: Segment.ID?
     @State private var dragOffset: CGFloat = 0
@@ -42,7 +63,7 @@ struct TimelineTrackView: View {
                 }
             )
             
-            // Track content area
+            // Track content area - CLIPPED to prevent segments from appearing behind track header
             ZStack(alignment: .leading) {
                 // Background
                 Rectangle()
@@ -65,6 +86,7 @@ struct TimelineTrackView: View {
                                 timelineWidth: timelineWidth,
                                 projectViewModel: projectViewModel,
                                 playerViewModel: playerViewModel,
+                                timelineViewModel: timelineViewModel,
                                 onSelect: { isCommandKey in
                                     // CRITICAL: Only allow selecting clip segments, not gaps
                                     guard segment.kind == .clip else {
@@ -115,6 +137,7 @@ struct TimelineTrackView: View {
                                 }
                             )
                             .offset(x: itemXPosition(for: item))
+                            .animation(.easeInOut(duration: 0.2), value: itemXPosition(for: item))  // Smooth animation for position changes
                         }
                     } else if case .gap(let gapDuration, let gapStart) = item {
                         // Render gap as dark gray rectangle
@@ -180,6 +203,7 @@ struct TimelineTrackView: View {
                     }
                 }
             }
+            .clipped() // CRITICAL: Prevent segments from visually leaking behind track header when dragged
         }
     }
     
@@ -278,8 +302,14 @@ struct TimelineTrackView: View {
         return items
     }
     
+    // Fixed pixels per second (must match TimeRulerView for alignment)
+    private let basePixelsPerSecond: CGFloat = 80.0
+    
+    private var pixelsPerSecond: CGFloat {
+        basePixelsPerSecond * zoomLevel.scale
+    }
+    
     private func itemXPosition(for item: TimelineItem) -> CGFloat {
-        let baseWidth: CGFloat = 1000
         let time: Double
         
         switch item {
@@ -289,20 +319,16 @@ struct TimelineTrackView: View {
             time = startTime
         }
         
-        let ratio = time / max(totalDuration, 1.0)
-        return ratio * baseWidth * zoomLevel.scale
+        // Use fixed pixels per second for consistent positioning with ruler
+        return CGFloat(time) * pixelsPerSecond
     }
     
     private func gapXPosition(for startTime: Double) -> CGFloat {
-        let baseWidth: CGFloat = 1000
-        let ratio = startTime / max(totalDuration, 1.0)
-        return ratio * baseWidth * zoomLevel.scale
+        return CGFloat(startTime) * pixelsPerSecond
     }
     
     private func gapWidth(for duration: Double) -> CGFloat {
-        let baseWidth: CGFloat = 1000
-        let ratio = duration / max(totalDuration, 1.0)
-        return ratio * baseWidth * zoomLevel.scale
+        return CGFloat(duration) * pixelsPerSecond
     }
     
     private func trimSegment(_ segment: Segment, start: Double?, end: Double?) {
@@ -383,6 +409,7 @@ struct TimelineSegmentView: View {
     let timelineWidth: CGFloat
     @ObservedObject var projectViewModel: ProjectViewModel
     @ObservedObject var playerViewModel: PlayerViewModel
+    let timelineViewModel: TimelineViewModel?  // Optional - for EditorTool.segmentSelect support
     let onSelect: (Bool) -> Void  // Bool indicates if Command key is pressed
     let onDelete: () -> Void
     let onTrimStart: (Double) -> Void
@@ -394,6 +421,8 @@ struct TimelineSegmentView: View {
     @State private var hoveredEdge: TrimHandle?
     @State private var dragStartLocation: CGPoint = .zero
     @State private var dragStartTime: Double = 0
+    @State private var dragLastUpdateTime: TimeInterval? = nil  // Throttle drag updates
+    @State private var dragVisualOffset: CGFloat = 0  // Visual offset during drag for smooth motion
     
     private let trimHandleWidth: CGFloat = 8
     private let trimZoneWidth: CGFloat = 8  // Zone near edge for trim detection
@@ -436,36 +465,43 @@ struct TimelineSegmentView: View {
         projectViewModel.compositionStart(for: segment)
     }
     
+    // Fixed pixels per second (must match TimeRulerView for alignment)
+    private let basePixelsPerSecond: CGFloat = 80.0
+    
+    private var pixelsPerSecond: CGFloat {
+        basePixelsPerSecond * zoomLevel.scale
+    }
+    
     private var width: CGFloat {
-        let baseWidth: CGFloat = 1000
-        let ratio = segment.duration / max(totalDuration, 1.0)
-        let scaledWidth = ratio * baseWidth * zoomLevel.scale
-        return max(scaledWidth, 40) // Minimum width for trim handles
+        // Use fixed pixels per second for consistent sizing with ruler
+        let calculatedWidth = CGFloat(segment.duration) * pixelsPerSecond
+        return max(calculatedWidth, 40) // Minimum width for trim handles
     }
     
     private var xPosition: CGFloat {
-        let baseWidth: CGFloat = 1000
-        let ratio = compositionStart / max(totalDuration, 1.0)
-        return ratio * baseWidth * zoomLevel.scale
+        // Use fixed pixels per second for consistent positioning with ruler
+        return CGFloat(compositionStart) * pixelsPerSecond
     }
     
     var body: some View {
         ZStack(alignment: .leading) {
-            // Main segment block
+            // Main segment block - SOLID VISUAL APPEARANCE
+            // Smooth animation for position changes
             RoundedRectangle(cornerRadius: 4)
                 .fill(segmentColor)
                 .frame(width: width, height: trackHeight - 4)
+                .offset(x: dragVisualOffset)  // Visual offset during drag for smooth motion
                 .overlay(
-                    // White thin border to separate segments
+                    // Solid border to separate segments - more visible for solid appearance
                     RoundedRectangle(cornerRadius: 4)
-                        .strokeBorder(Color.white.opacity(0.3), lineWidth: 1)
+                        .strokeBorder(Color.white.opacity(0.5), lineWidth: 1.5)
                 )
                 .overlay(
-                    // Playing indicator (thin teal border when playing)
+                    // Playing indicator (solid teal border when playing)
                     Group {
                         if isPlaying && !isSelected {
                             RoundedRectangle(cornerRadius: 4)
-                                .stroke(AppColors.tealAccent.opacity(0.5), lineWidth: 1)
+                                .stroke(AppColors.tealAccent, lineWidth: 2)
                         }
                     }
                 )
@@ -516,16 +552,20 @@ struct TimelineSegmentView: View {
                                 return
                             }
                             
-                            let tool = projectViewModel.selectedTimelineTool
-                            print("SkipSlate: 🔵 TAP DETECTED with tool: \(tool.name) for segment: \(segment.id)")
+                            // Check TimelineTool from ProjectViewModel (primary tool system)
+                            let timelineTool = projectViewModel.selectedTimelineTool
                             
-                            switch tool {
-                            case .cursor, .segmentSelector:
-                                // Selection behavior - same for both cursor and segmentSelector
-                                // When segmentSelector tool is active, handle selection
+                            print("SkipSlate: 🔵 TAP DETECTED with TimelineTool: \(timelineTool.name) for segment: \(segment.id)")
+                            
+                            // Handle selection when segmentSelector tool is active
+                            switch timelineTool {
+                            case .segmentSelector, .cursor:
+                                // Selection behavior - segmentSelector is the dedicated select tool
                                 let isCommandKey = NSEvent.modifierFlags.contains(.command)
+                                
+                                // Call onSelect which handles the actual selection logic
                                 onSelect(isCommandKey)
-                                print("SkipSlate: ✅ Selection complete - selectedSegmentIDs count: \(projectViewModel.selectedSegmentIDs.count)")
+                                print("SkipSlate: ✅ Selection complete (segmentSelector tool) - selectedSegmentIDs count: \(projectViewModel.selectedSegmentIDs.count)")
                                 
                             case .move:
                                 // Move tool - select segment first, then user can drag it
@@ -545,10 +585,8 @@ struct TimelineSegmentView: View {
                                     return
                                 }
                                 
-                                // Calculate time ratio from click position
-                                let baseWidth: CGFloat = 1000
-                                let pixelsPerSecond = (baseWidth * zoomLevel.scale) / max(totalDuration, 1.0)
-                                let clickTimeOffset = relativeX / pixelsPerSecond
+                                // Calculate cut time using fixed pixels per second
+                                let clickTimeOffset = Double(relativeX) / Double(pixelsPerSecond)
                                 let cutTime = compositionStart + clickTimeOffset
                                 
                                 // Ensure cut time is within segment bounds (with minimum margins)
@@ -594,6 +632,7 @@ struct TimelineSegmentView: View {
                                 isDragging = true
                                 dragStartLocation = value.startLocation
                                 dragStartTime = compositionStart
+                                dragVisualOffset = 0  // Reset visual offset
                                 
                                 // Pause playback during drag for better UX
                                 if playerViewModel.isPlaying {
@@ -608,37 +647,46 @@ struct TimelineSegmentView: View {
                                 print("SkipSlate: 🎯 Started dragging segment \(segment.id) from position \(compositionStart)s")
                             }
                             
-                            // Calculate new position based on drag distance
+                            // Calculate new position based on drag distance using fixed pixels per second
                             let deltaX = value.translation.width
-                            let baseWidth: CGFloat = 1000
-                            let pixelsPerSecond = (baseWidth * zoomLevel.scale) / max(totalDuration, 1.0)
-                            let deltaTime = deltaX / pixelsPerSecond
-                            let newTime = max(0, dragStartTime + deltaTime)
+                            let deltaTime = Double(deltaX) / Double(pixelsPerSecond)
+                            let rawTime = max(0, dragStartTime + deltaTime)
                             
                             // CRASH-PROOF: Validate new time is reasonable
-                            guard newTime >= 0 && newTime.isFinite else {
-                                print("SkipSlate: ⚠️ Invalid drag time: \(newTime)")
+                            guard rawTime >= 0 && rawTime.isFinite else {
+                                print("SkipSlate: ⚠️ Invalid drag time: \(rawTime)")
                                 return
                             }
                             
-                            // Update segment's composition start time in real-time (non-ripple move)
-                            projectViewModel.updateSegmentCompositionStartTime(segment.id, newStartTime: newTime)
+                            // SNAP TO GRID: Calculate snapped position for visual feedback
+                            let snappedTime = projectViewModel.snapToGrid(rawTime)
+                            
+                            // VISUAL ONLY: Convert snapped time back to pixel offset for smooth visual feedback
+                            let snappedDeltaTime = snappedTime - dragStartTime
+                            let snappedDeltaX = CGFloat(snappedDeltaTime) * pixelsPerSecond
+                            dragVisualOffset = snappedDeltaX
                         }
                         .onEnded { value in
                             guard isDragging else { return }
                             
-                            // Calculate final position
+                            // Calculate final position using fixed pixels per second
                             let deltaX = value.translation.width
-                            let baseWidth: CGFloat = 1000
-                            let pixelsPerSecond = (baseWidth * zoomLevel.scale) / max(totalDuration, 1.0)
-                            let deltaTime = deltaX / pixelsPerSecond
-                            let finalTime = max(0, dragStartTime + deltaTime)
+                            let deltaTime = Double(deltaX) / Double(pixelsPerSecond)
+                            let rawFinalTime = max(0, dragStartTime + deltaTime)
                             
-                            // CRASH-PROOF: Finalize move with validation and rebuild
+                            // SNAP TO GRID: Final position is always snapped to grid for solid, locked feel
+                            let finalTime = projectViewModel.snapToGrid(rawFinalTime)
+                            
+                            // Reset visual offset immediately since we're committing to the model
+                            dragVisualOffset = 0
+                            
+                            // IMMEDIATE: Update segment position and rebuild composition for preview
+                            // This ensures the preview shows the segment in its new position
                             projectViewModel.moveSegment(segment.id, to: finalTime)
                             
                             isDragging = false
-                            print("SkipSlate: ✅ Finished dragging segment \(segment.id) to position \(finalTime)s")
+                            dragLastUpdateTime = nil
+                            print("SkipSlate: ✅ Finished dragging segment \(segment.id) to position \(finalTime)s (snapped from \(rawFinalTime)s)")
                         }
                 )
                 .onHover { hovering in
@@ -678,10 +726,8 @@ struct TimelineSegmentView: View {
                                     }
                                 }
                                 
-                                // Calculate new start time (trimming left edge - extending left or shrinking right)
-                                let baseWidth: CGFloat = 1000
-                                let pixelsPerSecond = (baseWidth * zoomLevel.scale) / max(totalDuration, 1.0)
-                                let deltaTime = -value.translation.width / pixelsPerSecond
+                                // Calculate new start time using fixed pixels per second
+                                let deltaTime = -(Double(value.translation.width) / Double(pixelsPerSecond))
                                 
                                 // Find adjacent segment to the left (in same track)
                                 let segmentCompStart = compositionStart
@@ -762,10 +808,8 @@ struct TimelineSegmentView: View {
                                     }
                                 }
                                 
-                                // Calculate new end time (trimming right edge - extending right or shrinking left)
-                                let baseWidth: CGFloat = 1000
-                                let pixelsPerSecond = (baseWidth * zoomLevel.scale) / max(totalDuration, 1.0)
-                                let deltaTime = value.translation.width / pixelsPerSecond
+                                // Calculate new end time using fixed pixels per second
+                                let deltaTime = Double(value.translation.width) / Double(pixelsPerSecond)
                                 
                                 // Find adjacent segment to the right (in same track)
                                 let segmentCompStart = compositionStart
