@@ -389,23 +389,12 @@ struct TimelineTrackView: View {
         // Ensure compositionStartTime doesn't go negative
         updatedSegment.compositionStartTime = max(0, updatedSegment.compositionStartTime)
         
-        // Preserve playback state before rebuild
-        let wasPlaying = playerViewModel.isPlaying
-        let savedTime = playerViewModel.currentTime
+        // REMOVED: Manual playback state management
+        // PlayerViewModel handles playback preservation during composition rebuilds
+        // Preview should be a pure mirror - only reflect composition changes
         
         projectViewModel.segments[index] = updatedSegment
         projectViewModel.updateSegmentTiming(updatedSegment, start: updatedSegment.sourceStart, end: updatedSegment.sourceEnd)
-        
-        // Restore playback state after rebuild (rebuildComposition already preserves it, but add extra safety)
-        if wasPlaying {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak playerViewModel] in
-                guard let playerVM = playerViewModel else { return }
-                let seekTime = min(savedTime, playerVM.duration)
-                playerVM.seek(to: seekTime, precise: true) { [weak playerVM] _ in
-                    playerVM?.play()
-                }
-            }
-        }
         
         print("SkipSlate: ✅ Trim complete - segment updated")
     }
@@ -653,10 +642,8 @@ struct TimelineSegmentView: View {
                                 dragStartTime = compositionStart
                                 dragVisualOffset = 0  // Reset visual offset
                                 
-                                // Pause playback during drag for better UX
-                                if playerViewModel.isPlaying {
-                                    playerViewModel.pause()
-                                }
+                                // REMOVED: Don't pause player during drag
+                                // Preview should be a pure mirror - only reflect composition changes
                                 
                                 // Select segment if not already selected
                                 if !isSelected {
@@ -748,9 +735,8 @@ struct TimelineSegmentView: View {
                             .onChanged { value in
                                 if !isTrimming {
                                     isTrimming = true
-                                    if playerViewModel.isPlaying {
-                                        playerViewModel.pause()
-                                    }
+                                    // REMOVED: Don't pause player during trim
+                                    // Preview should be a pure mirror - only reflect composition changes
                                 }
                                 
                                 // Calculate new start time using fixed pixels per second
@@ -830,9 +816,8 @@ struct TimelineSegmentView: View {
                             .onChanged { value in
                                 if !isTrimming {
                                     isTrimming = true
-                                    if playerViewModel.isPlaying {
-                                        playerViewModel.pause()
-                                    }
+                                    // REMOVED: Don't pause player during trim
+                                    // Preview should be a pure mirror - only reflect composition changes
                                 }
                                 
                                 // Calculate new end time using fixed pixels per second

@@ -47,6 +47,8 @@ class PlayerViewModel: NSObject, ObservableObject {
     
     // Debouncing for updatePlayer
     private var updateTask: Task<Void, Never>?
+    // CRITICAL: Track rebuild task to cancel previous rebuilds and prevent race conditions
+    private var rebuildTask: Task<Void, Never>?
     private var isUpdating = false
     private var lastCompositionDuration: CMTime = .zero
     private var lastCompositionHash: Int = 0
@@ -70,7 +72,8 @@ class PlayerViewModel: NSObject, ObservableObject {
     }
     
     func rebuildComposition(from project: Project) {
-        // Cancel any pending updates
+        // CRITICAL: Cancel any pending rebuilds AND updates to prevent race conditions
+        rebuildTask?.cancel()
         updateTask?.cancel()
         
         // CRASH-PROOF: Validate project has segments before proceeding
@@ -94,13 +97,25 @@ class PlayerViewModel: NSObject, ObservableObject {
         
         lastCompositionHash = projectHash
         currentProject = project
-        // Preserve playback state during rebuild
-        let wasPlaying = isPlaying
-        let savedTime = currentTime
+        // NOTE: Playback state is preserved by updatePlayer(), not here
+        // This prevents double restoration race conditions
         
-        Task {
+        // CRITICAL: Track this task so it can be cancelled if a new rebuild is requested
+        rebuildTask = Task {
             do {
+                // Check if cancelled before expensive work
+                guard !Task.isCancelled else {
+                    print("SkipSlate: Rebuild task cancelled before buildComposition")
+                    return
+                }
+                
                 let composition = try await buildComposition(from: project)
+                
+                // Check if cancelled after buildComposition completes
+                guard !Task.isCancelled else {
+                    print("SkipSlate: Rebuild task cancelled after buildComposition")
+                    return
+                }
                 
                 await MainActor.run {
                     // CRASH-PROOF: Validate composition has content before updating player
@@ -145,38 +160,15 @@ class PlayerViewModel: NSObject, ObservableObject {
                     self.currentColorSettings = project.colorSettings
                     self.currentAudioSettings = project.audioSettings
                     self.lastCompositionDuration = .zero // Reset to force update
-                    self.updatePlayer()
                     
-                    // CRASH-PROOF: Restore playback state if it was playing
-                    // NOTE: For rerun auto-edit, playback restoration is handled by the caller
-                    // Only restore here if this is a regular rebuild (not from rerun)
-                    if wasPlaying {
-                        // CRASH-PROOF: Validate duration before seeking
-                        let maxDuration = (self.duration.isFinite && self.duration > 0) ? self.duration : 50.0
-                        let seekTime = min(max(0.0, savedTime), maxDuration)
-                        
-                        // CRASH-PROOF: Validate seek time
-                        guard seekTime.isFinite && seekTime >= 0 else {
-                            print("SkipSlate: ⚠️ Invalid seek time in rebuildComposition: \(savedTime), skipping playback restoration")
-                            return
-                        }
-                        
-                        // CRASH-PROOF: Non-blocking seek with timeout protection
-                        self.seek(to: seekTime, precise: true) { [weak self] finished in
-                            // CRASH-PROOF: Proceed even if seek didn't finish (timeout protection)
-                            DispatchQueue.main.async {
-                                guard let self = self else { return }
-                                if finished {
-                                    self.play()
-                                    print("SkipSlate: ✅ Playback restored after rebuild")
-                                } else {
-                                    // Seek didn't complete, but try to play anyway to prevent freeze
-                                    print("SkipSlate: ⚠️ Seek did not complete in rebuildComposition, attempting to play anyway")
-                                    self.play()
-                                }
-                            }
-                        }
-                    }
+                    // CONSOLIDATED: updatePlayer handles ALL playback state preservation
+                    // This prevents double restoration race conditions
+                    // updatePlayer will:
+                    // 1. Capture current playback state
+                    // 2. Replace player item
+                    // 3. Seek to previous time
+                    // 4. Restore play/pause state
+                    self.updatePlayer()
                 }
             } catch {
                 print("SkipSlate: ⚠⚠⚠ CRITICAL ERROR building composition: \(error)")
@@ -268,13 +260,11 @@ class PlayerViewModel: NSObject, ObservableObject {
         let wasPlaying = isPlaying
         print("SkipSlate: [Move DEBUG] updatePlayer – previousTime=\(previousTime), wasPlaying=\(wasPlaying)")
         
-        // Check if composition actually changed
+        // FIXED: Always update player when composition changes (new composition object)
+        // The old check only compared duration, which caused freeze when segments moved
+        // but duration stayed the same. Now we always update to ensure player stays in sync.
+        // The hash-based check in rebuildComposition already prevents unnecessary rebuilds.
         let compositionDuration = composition.duration
-        if compositionDuration == lastCompositionDuration && playerItem != nil {
-            // Only update if settings changed, not if composition is the same
-            // This prevents unnecessary rebuilds when nothing actually changed
-            return
-        }
         
         isUpdating = true
         defer { isUpdating = false }
@@ -284,12 +274,8 @@ class PlayerViewModel: NSObject, ObservableObject {
         
         let playerItem = AVPlayerItem(asset: composition)
         
-        // Remove old observer if exists
-        if let oldItem = self.playerItem {
-            oldItem.removeObserver(self, forKeyPath: "status", context: &playerItemStatusContext)
-            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: oldItem)
-            NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: oldItem)
-        }
+        // NOTE: Observer removal is handled in attachPlayerItemObservers()
+        // Do NOT remove observers here - it causes double removal crash
         
         // Check composition tracks
         let videoTracks = composition.tracks(withMediaType: .video)
@@ -461,12 +447,17 @@ class PlayerViewModel: NSObject, ObservableObject {
         setupTimeObserver()
         
         // CRITICAL: Seek to previous time and restore playing state
+        // FIXED: Proceed even if seek doesn't complete to prevent freezes
         seek(to: previousTime, precise: true) { [weak self] completed in
-            guard let self = self, completed else { return }
+            guard let self = self else { return }
+            // Restore playback state regardless of seek completion
+            // This prevents freezes when seek takes too long or fails
             if wasPlaying {
                 self.play()
+                print("SkipSlate: ✅ Playback restored after updatePlayer (seek completed: \(completed))")
             } else {
                 self.pause()
+                print("SkipSlate: ✅ Paused state maintained after updatePlayer (seek completed: \(completed))")
             }
         }
         
@@ -1990,8 +1981,7 @@ class PlayerViewModel: NSObject, ObservableObject {
             NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: item)
         }
         
-        // Remove player rate observer
-        player?.removeObserver(self, forKeyPath: "rate")
+        // NOTE: Rate observer was never added, so don't remove it
         
         // Remove all notifications
         NotificationCenter.default.removeObserver(self)

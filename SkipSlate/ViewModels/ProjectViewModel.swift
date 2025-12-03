@@ -3126,23 +3126,12 @@ class ProjectViewModel: ObservableObject {
         selectedSegmentIDs.removeAll()
         selectedSegment = nil
         
-        // Preserve playback state before rebuild
-        let wasPlaying = playerViewModel?.isPlaying ?? false
-        let savedTime = playerViewModel?.currentTime ?? 0.0
+        // REMOVED: Manual playback state management
+        // PlayerViewModel handles playback preservation during composition rebuilds
+        // Preview should be a pure mirror - only reflect composition changes
         
-        // Rebuild composition
+        // Rebuild composition - PlayerViewModel will preserve playback state
         immediateRebuild()
-        
-        // Restore playback state after rebuild completes (with small delay to allow rebuild to start)
-        if wasPlaying {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                guard let self = self else { return }
-                let seekTime = min(savedTime, self.playerViewModel?.duration ?? savedTime)
-                self.playerViewModel?.seek(to: seekTime, precise: true) { [weak self] _ in
-                    self?.playerViewModel?.play()
-                }
-            }
-        }
         
         print("SkipSlate: ✅ Split complete - segment split into two at \(cutTime)s")
     }

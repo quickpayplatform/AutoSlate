@@ -641,10 +641,8 @@ struct EnhancedSegmentBlock: View {
                                             if !isDragging {
                                                 isDragging = true
                                                 dragStartX = value.startLocation.x
-                                                // CRITICAL: Use directly observed playerViewModel
-                                                if playerViewModel.isPlaying {
-                                                    playerViewModel.pause()
-                                                }
+                                                // REMOVED: Don't pause player during drag
+                                                // Preview should be a pure mirror - only reflect composition changes
                                             }
                                             onDrag(value.translation.width)
                                         }
@@ -673,10 +671,8 @@ struct EnhancedSegmentBlock: View {
                                 if !isTrimming {
                                     isTrimming = true
                                     trimHandle = .start
-                                    // CRITICAL: Use directly observed playerViewModel
-                                    if playerViewModel.isPlaying {
-                                        playerViewModel.pause()
-                                    }
+                                    // REMOVED: Don't pause player during trim
+                                    // Preview should be a pure mirror - only reflect composition changes
                                 }
                                 
                                 // Calculate new start time based on drag
@@ -713,10 +709,8 @@ struct EnhancedSegmentBlock: View {
                                 if !isTrimming {
                                     isTrimming = true
                                     trimHandle = .end
-                                    // CRITICAL: Use directly observed playerViewModel
-                                    if playerViewModel.isPlaying {
-                                        playerViewModel.pause()
-                                    }
+                                    // REMOVED: Don't pause player during trim
+                                    // Preview should be a pure mirror - only reflect composition changes
                                 }
                                 
                                 // Calculate new end time based on drag

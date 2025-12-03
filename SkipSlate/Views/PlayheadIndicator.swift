@@ -34,6 +34,7 @@ struct PlayheadIndicator: View {
     @State private var isDragging = false
     @State private var dragStartX: CGFloat = 0
     @State private var dragStartTime: Double = 0
+    @State private var wasPlayingBeforeDrag = false // Track if we should resume playback after drag
     
     private let baseTimelineWidth: CGFloat = 1000 // Base width for timeline calculations
     private let trackLabelWidth: CGFloat = 40 // Width of track labels (V1, V2, A1, etc.)
@@ -76,9 +77,11 @@ struct PlayheadIndicator: View {
                             .onChanged { value in
                                 if !isDragging {
                                     isDragging = true
-                                        // CRITICAL: Account for track label width in drag start position
+                                    // CRITICAL: Account for track label width in drag start position
                                     dragStartX = value.startLocation.x
                                     dragStartTime = currentTime
+                                    // Track if we need to resume playback after drag
+                                    wasPlayingBeforeDrag = playerVM.isPlaying
                                     if playerVM.isPlaying {
                                         playerVM.pause()
                                     }
@@ -86,10 +89,10 @@ struct PlayheadIndicator: View {
                                 
                                 // Calculate new time based on absolute position, not relative translation
                                 // This provides more precise control
-                                    // CRITICAL: Account for track label width when calculating time from X position
+                                // CRITICAL: Account for track label width when calculating time from X position
                                 let absoluteX = dragStartX + value.translation.width
-                                    let contentX = max(0, absoluteX - trackLabelWidth) // Subtract label width
-                                    let clampedX = max(0, min(effectiveWidth, contentX))
+                                let contentX = max(0, absoluteX - trackLabelWidth) // Subtract label width
+                                let clampedX = max(0, min(effectiveWidth, contentX))
                                 let newTimeRatio = clampedX / effectiveWidth
                                 let newTime = newTimeRatio * totalDuration
                                 
@@ -98,7 +101,12 @@ struct PlayheadIndicator: View {
                             }
                             .onEnded { _ in
                                 isDragging = false
-                                } : nil
+                                // CRITICAL: Resume playback if it was playing before drag
+                                if wasPlayingBeforeDrag {
+                                    playerVM.play()
+                                }
+                                wasPlayingBeforeDrag = false
+                            } : nil
                     )
             }
             // No animation - direct position updates for frame-accurate playhead
