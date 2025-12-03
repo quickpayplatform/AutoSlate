@@ -73,9 +73,228 @@ struct EnhancedTimelineView: View {
             timelineContent
         }
         .background(AppColors.background)
+        .focusable()
+        .onKeyPress { keyPress in
+            return handleKeyPress(keyPress)
+        }
         .onAppear {
             setupKeyboardNavigation()
         }
+    }
+    
+    /// Handle keyboard shortcuts for timeline operations
+    private func handleKeyPress(_ keyPress: KeyPress) -> KeyPress.Result {
+        let key = keyPress.key
+        let modifiers = keyPress.modifiers
+        
+        // MARK: - Playback Controls (no modifiers)
+        if modifiers.isEmpty {
+            switch key {
+            case .space: // Space - Play/Pause
+                playerViewModel.togglePlayPause()
+                return .handled
+                
+            case KeyEquivalent("j"): // J - Reverse/slower
+                handleJKey()
+                return .handled
+                
+            case KeyEquivalent("k"): // K - Pause
+                playerViewModel.pause()
+                return .handled
+                
+            case KeyEquivalent("l"): // L - Forward/faster
+                handleLKey()
+                return .handled
+                
+            case KeyEquivalent("v"): // V - Selection tool
+                toolState.selectTool(.cursor)
+                return .handled
+                
+            case KeyEquivalent("c"), KeyEquivalent("b"): // C or B - Cut tool
+                toolState.selectTool(.cut)
+                return .handled
+                
+            case KeyEquivalent("t"): // T - Trim tool
+                toolState.selectTool(.trim)
+                return .handled
+                
+            case KeyEquivalent("m"): // M - Move tool
+                toolState.selectTool(.move)
+                return .handled
+                
+            case .leftArrow: // Left arrow - Previous frame
+                let frameTime = 1.0 / 30.0
+                let newTime = max(0, playerViewModel.currentTime - frameTime)
+                playerViewModel.seek(to: newTime, precise: true)
+                return .handled
+                
+            case .rightArrow: // Right arrow - Next frame
+                let frameTime = 1.0 / 30.0
+                let newTime = min(playerViewModel.duration, playerViewModel.currentTime + frameTime)
+                playerViewModel.seek(to: newTime, precise: true)
+                return .handled
+                
+            case .downArrow: // Down arrow - Next segment
+                selectNextSegment()
+                return .handled
+                
+            case .upArrow: // Up arrow - Previous segment
+                selectPreviousSegment()
+                return .handled
+                
+            case .delete: // Delete - Delete selected segment
+                if let selectedSegment = projectViewModel.selectedSegment {
+                    projectViewModel.deleteSegment(selectedSegment)
+                }
+                return .handled
+                
+            default:
+                break
+            }
+        }
+        
+        // MARK: - Command shortcuts
+        if modifiers == .command {
+            switch key {
+            case KeyEquivalent("z"): // Cmd+Z - Undo
+                projectViewModel.undo()
+                return .handled
+                
+            case KeyEquivalent("a"): // Cmd+A - Select all
+                projectViewModel.selectAllSegments()
+                return .handled
+                
+            case KeyEquivalent("d"): // Cmd+D - Deselect all
+                projectViewModel.selectedSegmentIDs.removeAll()
+                projectViewModel.selectedSegment = nil
+                return .handled
+                
+            default:
+                break
+            }
+        }
+        
+        // MARK: - Shift+Command shortcuts
+        if modifiers == [.command, .shift] {
+            switch key {
+            case KeyEquivalent("z"): // Cmd+Shift+Z - Redo
+                projectViewModel.redo()
+                return .handled
+                
+            default:
+                break
+            }
+        }
+        
+        // MARK: - Shift shortcuts (larger seek steps)
+        if modifiers == .shift {
+            switch key {
+            case .leftArrow: // Shift+Left - Seek back 1 second
+                let newTime = max(0, playerViewModel.currentTime - 1.0)
+                playerViewModel.seek(to: newTime, precise: true)
+                return .handled
+                
+            case .rightArrow: // Shift+Right - Seek forward 1 second
+                let newTime = min(playerViewModel.duration, playerViewModel.currentTime + 1.0)
+                playerViewModel.seek(to: newTime, precise: true)
+                return .handled
+                
+            default:
+                break
+            }
+        }
+        
+        // MARK: - Control+Command shortcuts
+        if modifiers == [.command, .control] {
+            switch key {
+            case KeyEquivalent("s"): // Cmd+Ctrl+S - Split at playhead
+                splitAtPlayhead()
+                return .handled
+                
+            default:
+                break
+            }
+        }
+        
+        return .ignored
+    }
+    
+    private func handleJKey() {
+        let currentRate = playerViewModel.playbackRate
+        if currentRate > 0 {
+            playerViewModel.setPlaybackRate(-1.0)
+        } else if currentRate == -1.0 {
+            playerViewModel.setPlaybackRate(-2.0)
+        } else if currentRate == -2.0 {
+            playerViewModel.setPlaybackRate(-4.0)
+        } else {
+            playerViewModel.setPlaybackRate(-1.0)
+        }
+    }
+    
+    private func handleLKey() {
+        let currentRate = playerViewModel.playbackRate
+        if currentRate < 0 || currentRate == 0 {
+            playerViewModel.setPlaybackRate(1.0)
+        } else if currentRate == 1.0 {
+            playerViewModel.setPlaybackRate(2.0)
+        } else if currentRate == 2.0 {
+            playerViewModel.setPlaybackRate(4.0)
+        } else {
+            playerViewModel.setPlaybackRate(1.0)
+        }
+    }
+    
+    private func selectNextSegment() {
+        let sortedSegments = projectViewModel.segments.filter { $0.kind == .clip }.sorted { $0.compositionStartTime < $1.compositionStartTime }
+        guard !sortedSegments.isEmpty else { return }
+        
+        if let current = projectViewModel.selectedSegment,
+           let currentIndex = sortedSegments.firstIndex(where: { $0.id == current.id }),
+           currentIndex < sortedSegments.count - 1 {
+            let nextSegment = sortedSegments[currentIndex + 1]
+            projectViewModel.selectedSegment = nextSegment
+            projectViewModel.selectedSegmentIDs = [nextSegment.id]
+            playerViewModel.seek(to: nextSegment.compositionStartTime, precise: true)
+        } else if let first = sortedSegments.first {
+            projectViewModel.selectedSegment = first
+            projectViewModel.selectedSegmentIDs = [first.id]
+            playerViewModel.seek(to: first.compositionStartTime, precise: true)
+        }
+    }
+    
+    private func selectPreviousSegment() {
+        let sortedSegments = projectViewModel.segments.filter { $0.kind == .clip }.sorted { $0.compositionStartTime < $1.compositionStartTime }
+        guard !sortedSegments.isEmpty else { return }
+        
+        if let current = projectViewModel.selectedSegment,
+           let currentIndex = sortedSegments.firstIndex(where: { $0.id == current.id }),
+           currentIndex > 0 {
+            let prevSegment = sortedSegments[currentIndex - 1]
+            projectViewModel.selectedSegment = prevSegment
+            projectViewModel.selectedSegmentIDs = [prevSegment.id]
+            playerViewModel.seek(to: prevSegment.compositionStartTime, precise: true)
+        } else if let last = sortedSegments.last {
+            projectViewModel.selectedSegment = last
+            projectViewModel.selectedSegmentIDs = [last.id]
+            playerViewModel.seek(to: last.compositionStartTime, precise: true)
+        }
+    }
+    
+    private func splitAtPlayhead() {
+        let playheadTime = playerViewModel.currentTime
+        
+        for segment in projectViewModel.segments where segment.kind == .clip {
+            let segStart = segment.compositionStartTime
+            let segEnd = segStart + segment.duration
+            
+            if playheadTime > segStart + 0.1 && playheadTime < segEnd - 0.1 {
+                projectViewModel.splitSegment(segment, at: playheadTime)
+                return
+            }
+        }
+        
+        print("SkipSlate: ⚠️ No segment found at playhead position for split")
     }
     
     // MARK: - View Components
@@ -163,6 +382,9 @@ struct EnhancedTimelineView: View {
                         .font(.caption)
                         .foregroundColor(AppColors.secondaryText)
                 }
+                
+                // Playback controls - moved from top bar to timeline
+                TimelinePlaybackControls(playerViewModel: playerViewModel)
             }
             .padding(.horizontal)
             .padding(.vertical, 8)
@@ -172,34 +394,12 @@ struct EnhancedTimelineView: View {
     // Track header width - must match TrackHeaderView width for alignment
     private let trackHeaderWidth: CGFloat = 50  // Must match TrackHeaderView.headerWidth exactly
     
+    // NOTE: timeRulerSection is no longer used - ruler is now inside timelineContent
+    // for synchronized scrolling
     @ViewBuilder
     private var timeRulerSection: some View {
-        // Time ruler - THE "HOUSE" - Always exists, segments live within it
-        HStack(spacing: 0) {
-            // Empty spacer to align with track header
-            Rectangle()
-                .fill(Color.clear)
-                .frame(width: trackHeaderWidth, height: 30)
-            
-            // Time ruler content - uses fixed rulerDuration for the "house"
-            ScrollView(.horizontal, showsIndicators: false) {
-                TimeRulerView(
-                    playerViewModel: playerViewModel,
-                    timelineViewModel: timelineViewModel,
-                    rulerDuration: rulerDuration,  // Fixed ruler length (the "house")
-                    contentDuration: totalDuration,  // Actual content for seeking limits
-                    earliestStartTime: earliestSegmentStartTime,
-                    onSeek: { time in
-                        playerViewModel.seek(to: time, precise: true)
-                    },
-                    frameRate: 30.0
-                )
-            }
-        }
-        .frame(height: 30)
-        .onAppear {
-            timelineViewModel.baseTimelineWidth = 1000
-        }
+        // Empty placeholder - ruler is now part of the main scrollable content
+        EmptyView()
     }
     
     // Fixed pixels per second for timeline (must match TimeRulerView)
@@ -224,101 +424,119 @@ struct EnhancedTimelineView: View {
             .frame(maxWidth: .infinity)
         } else {
             GeometryReader { geometry in
-                let availableHeight = geometry.size.height
+                let rulerHeight: CGFloat = 30
+                let sortedTracks = getSortedTracks()
+                let trackHeightsList = sortedTracks.map { trackHeight(for: $0.id) }
+                
+                VStack(spacing: 0) {
+                    // ROW 1: Gray corner + Ruler (both 30px height)
+                    HStack(spacing: 0) {
+                        // Gray corner (matches track header width)
+                        Rectangle()
+                            .fill(AppColors.panelBackground)
+                            .frame(width: trackHeaderWidth, height: rulerHeight)
+                        
+                        // Time ruler - scrolls horizontally
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            TimeRulerView(
+                                playerViewModel: playerViewModel,
+                                timelineViewModel: timelineViewModel,
+                                rulerDuration: rulerDuration,
+                                contentDuration: totalDuration,
+                                earliestStartTime: earliestSegmentStartTime,
+                                onSeek: { time in
+                                    playerViewModel.seek(to: time, precise: true)
+                                },
+                                frameRate: 30.0
+                            )
+                            .frame(height: rulerHeight)
+                        }
+                    }
+                    .frame(height: rulerHeight)
                     
-                    ZStack(alignment: .leading) {
-                        // Global cursor update based on selected tool
-                        Color.clear
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .onHover { hovering in
-                                if hovering {
-                                    timelineViewModel.currentTool.cursor.push()
-                                } else {
-                                    NSCursor.pop()
+                    // ROW 2: Track headers + Track content (both aligned to top)
+                    HStack(alignment: .top, spacing: 0) {
+                        // FIXED: Track headers column
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(sortedTracks.enumerated()), id: \.element.id) { index, track in
+                                TrackHeaderView(
+                                    track: track,
+                                    isActive: track.index == 0,
+                                    height: trackHeightsList[index]
+                                )
+                                .frame(height: trackHeightsList[index])
+                                
+                                // Divider between tracks
+                                if index < sortedTracks.count - 1 {
+                                    Rectangle()
+                                        .fill(Color(white: 0.3))
+                                        .frame(height: 1)
                                 }
                             }
+                            Spacer(minLength: 0)
+                        }
+                        .frame(width: trackHeaderWidth)
+                        .background(AppColors.panelBackground)
                         
-                        // Scrollable track content - uses fixed timelineWidth (the "house")
-                        ScrollView(.horizontal, showsIndicators: true) {
-                            VStack(spacing: 0) {
-                                // Sort tracks: 
-                                // - Video tracks: newest on TOP (reverse order - V3, V2, V1)
-                                // - Audio tracks: newest on BOTTOM (normal order - A1, A2, A3)
-                                let sortedTracks = projectViewModel.tracks.sorted { track1, track2 in
-                                    if track1.kind != track2.kind {
-                                        // Video tracks come before audio tracks
-                                        return track1.kind == .video && track2.kind == .audio
-                                    }
-                                    // Video: higher index first (newest on top)
-                                    // Audio: lower index first (newest on bottom)
-                                    if track1.kind == .video {
-                                        return track1.index > track2.index
-                                    } else {
-                                        return track1.index < track2.index
-                                    }
-                                }
-                                
-                                // Calculate cumulative Y offsets for cross-track movement
-                                let trackHeights = sortedTracks.map { trackHeight(for: $0.id) }
-                                
+                        // SCROLLABLE: Track content (scrollbar hidden to blend with dark background)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            VStack(alignment: .leading, spacing: 0) {
                                 ForEach(Array(sortedTracks.enumerated()), id: \.element.id) { index, track in
-                                    let currentTrackHeight = trackHeights[index]
-                                    // Calculate Y offset: sum of all previous track heights + dividers
-                                    let trackYOffset = trackHeights.prefix(index).reduce(0, +) + CGFloat(index) // +1px per divider
+                                    let currentTrackHeight = trackHeightsList[index]
+                                    let trackYOffset = trackHeightsList.prefix(index).reduce(0, +) + CGFloat(index)
                                     
                                     TimelineTrackView(
                                         track: track,
                                         projectViewModel: projectViewModel,
                                         playerViewModel: playerViewModel,
                                         timelineViewModel: timelineViewModel,
-                                        totalDuration: rulerDuration,  // Use fixed ruler duration
+                                        totalDuration: rulerDuration,
                                         zoomLevel: timelineViewModel.zoomLevel,
                                         trackHeight: currentTrackHeight,
-                                        timelineWidth: timelineWidth,  // Use fixed timeline width
+                                        timelineWidth: timelineWidth,
                                         allTracks: sortedTracks,
                                         trackYOffset: trackYOffset,
                                         onCrossTrackMove: { segmentID, newTime, absoluteY in
-                                            // Determine target track based on Y position
                                             handleCrossTrackMove(
                                                 segmentID: segmentID,
                                                 newTime: newTime,
                                                 absoluteY: absoluteY,
                                                 sortedTracks: sortedTracks,
-                                                trackHeights: trackHeights
+                                                trackHeights: trackHeightsList
                                             )
                                         }
                                     )
                                     .frame(height: currentTrackHeight)
                                     
-                                    // Thin grid divider between tracks (1px instead of 4px)
+                                    // Divider between tracks (matches header column)
                                     if index < sortedTracks.count - 1 {
                                         Rectangle()
-                                            .fill(Color.clear)
+                                            .fill(Color(white: 0.3))
                                             .frame(height: 1)
-                                            .contentShape(Rectangle())
-                                            .background(Color(white: 0.2))
-                                            .onHover { hovering in
-                                                if hovering {
-                                                    NSCursor.resizeUpDown.push()
-                                                } else {
-                                                    NSCursor.pop()
-                                        }
-                                            }
-                                            .gesture(
-                                                DragGesture()
-                                                    .onChanged { value in
-                                                        let delta = value.translation.height
-                                                        let newHeight = max(minTrackHeight, min(maxTrackHeight, currentTrackHeight + delta))
-                                                        projectViewModel.trackHeights[track.id] = newHeight
-                                                    }
-                                            )
+                                    }
                                 }
                             }
-                            .frame(width: timelineWidth, alignment: .leading)  // Fixed timeline width
+                            .frame(width: timelineWidth, alignment: .topLeading)
                         }
-                        
                     }
                 }
+                .onAppear {
+                    timelineViewModel.baseTimelineWidth = 1000
+                }
+            }
+        }
+    }
+    
+    // Helper to get sorted tracks (video on top, audio on bottom)
+    private func getSortedTracks() -> [TimelineTrack] {
+        projectViewModel.tracks.sorted { track1, track2 in
+            if track1.kind != track2.kind {
+                return track1.kind == .video && track2.kind == .audio
+            }
+            if track1.kind == .video {
+                return track1.index > track2.index
+            } else {
+                return track1.index < track2.index
             }
         }
     }
@@ -517,6 +735,13 @@ struct EnhancedSegmentBlock: View {
     private var segmentColor: Color {
         if !segment.enabled {
             return Color.gray.opacity(0.3)
+        }
+        
+        // CRITICAL: Audio-only clips get the special audio color (teal-orange blend)
+        if let sourceClipID = segment.sourceClipID,
+           let clip = projectViewModel.clips.first(where: { $0.id == sourceClipID }),
+           clip.type == .audioOnly {
+            return ColorPalette.audioColor
         }
         
         // Get quality score for this segment
@@ -757,4 +982,66 @@ struct EnhancedSegmentBlock: View {
     }
 }
 
+// MARK: - Timeline Playback Controls
+// Playback controls displayed in the timeline header
+struct TimelinePlaybackControls: View {
+    @ObservedObject var playerViewModel: PlayerViewModel
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            // Timecode display
+            Text(timecodeString)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundColor(AppColors.tealAccent)
+                .frame(width: 100)
+            
+            // Skip to start
+            Button(action: {
+                playerViewModel.seek(to: 0)
+            }) {
+                Image(systemName: "backward.end.fill")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(AppColors.primaryText)
+            
+            // Play/Pause
+            Button(action: {
+                if playerViewModel.isPlaying {
+                    playerViewModel.pause()
+                } else {
+                    playerViewModel.play()
+                }
+            }) {
+                Image(systemName: playerViewModel.isPlaying ? "pause.fill" : "play.fill")
+                    .font(.system(size: 14))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(AppColors.tealAccent)
+            
+            // Skip to end
+            Button(action: {
+                playerViewModel.seek(to: playerViewModel.duration)
+            }) {
+                Image(systemName: "forward.end.fill")
+                    .font(.system(size: 12))
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(AppColors.primaryText)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(AppColors.panelBackground.opacity(0.8))
+        .cornerRadius(8)
+    }
+    
+    private var timecodeString: String {
+        let time = playerViewModel.currentTime
+        let hours = Int(time) / 3600
+        let minutes = Int(time) / 60 % 60
+        let seconds = Int(time) % 60
+        let frames = Int((time.truncatingRemainder(dividingBy: 1)) * 30)
+        return String(format: "%02d:%02d:%02d:%02d", hours, minutes, seconds, frames)
+    }
+}
 

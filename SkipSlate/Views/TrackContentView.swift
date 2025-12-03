@@ -118,6 +118,11 @@ struct TrackContentView: View {
             return Color.gray
         }
         
+        // CRITICAL: Audio-only clips get the special audio color (teal-orange blend)
+        if clip.type == .audioOnly {
+            return ClipColorPalette.audioColor
+        }
+        
         if projectViewModel.project.type == .highlightReel {
             return ClipColorPalette.highlightReelColor(for: clip.colorIndex)
         } else {

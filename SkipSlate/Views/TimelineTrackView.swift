@@ -58,25 +58,9 @@ struct TimelineTrackView: View {
     @State private var trimHandle: TrimHandle?
     
     var body: some View {
-        HStack(spacing: 0) {
-            // Track header (DaVinci-style)
-            TrackHeaderView(
-                track: track,
-                isActive: false, // TODO: Determine if track is active based on selection
-                height: trackHeight,
-                onMuteToggle: {
-                    // TODO: Implement mute toggle
-                },
-                onLockToggle: {
-                    // TODO: Implement lock toggle
-                },
-                onVisibilityToggle: {
-                    // TODO: Implement visibility toggle
-                }
-            )
-            
-            // Track content area - CLIPPED to prevent segments from appearing behind track header
-            ZStack(alignment: .leading) {
+        // Track content area only - headers are rendered separately in EnhancedTimelineView
+        // This allows headers to stay fixed while content scrolls
+        ZStack(alignment: .leading) {
                 // Background
                 Rectangle()
                     .fill(AppColors.background)
@@ -216,9 +200,9 @@ struct TimelineTrackView: View {
                             }
                     }
                 }
-            }
-            .clipped() // CRITICAL: Prevent segments from visually leaking behind track header when dragged
         }
+        .clipped() // CRITICAL: Prevent segments from visually leaking behind track header when dragged
+        .frame(height: trackHeight)
     }
     
     private var segmentsInOrder: [Segment] {
@@ -449,6 +433,11 @@ struct TimelineSegmentView: View {
         
         // Find the clip and use its assigned colorIndex
         if let clip = projectViewModel.clips.first(where: { $0.id == sourceClipID }) {
+            // CRITICAL: Audio-only clips get the special audio color (teal-orange blend)
+            if clip.type == .audioOnly {
+                return ClipColorPalette.audioColor
+            }
+            
             // CRITICAL: For Highlight Reel, use Highlight Reel specific colors
             if projectViewModel.project.type == .highlightReel {
                 // Use Highlight Reel color palette (0-11 for the 12 specific colors)

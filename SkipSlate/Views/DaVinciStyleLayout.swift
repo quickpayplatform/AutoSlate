@@ -162,10 +162,7 @@ struct DaVinciStyleLayout<Content: View>: View {
             
             Spacer()
             
-            // Playback controls and timecode
-            // CRITICAL: Use helper view that directly observes PlayerViewModel
-            TopBarPlaybackControls(playerViewModel: projectViewModel.playerVM)
-                .padding(.horizontal, 16)
+            // Playback controls moved to timeline area
         }
         .frame(height: 40)
         .background(Color(white: 0.10))

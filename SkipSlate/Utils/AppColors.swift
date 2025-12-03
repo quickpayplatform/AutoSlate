@@ -31,6 +31,10 @@ struct AppColors {
     static let tealAccent = Color(red: 0.12, green: 0.84, blue: 0.76) // #1ED6C1
     static let orangeAccent = Color(red: 1.00, green: 0.70, blue: 0.28) // #FFB347
     
+    // Audio Segment Color - A warm teal blend of teal and orange
+    // Creates a distinctive color that evokes both the teal UI theme and warm orange accents
+    static let audioSegmentColor = Color(red: 0.40, green: 0.75, blue: 0.60) // Warm teal-green with orange warmth
+    
     static func accentColor(for type: ProjectType) -> Color {
         switch type {
         case .podcast:

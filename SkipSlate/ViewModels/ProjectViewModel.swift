@@ -1420,6 +1420,40 @@ class ProjectViewModel: ObservableObject {
                         print("SkipSlate: ✅ Auto-edit: Created V1 track and added \(segmentsWithStartTimes.count) segments")
                     }
                     
+                    // CRITICAL: For Highlight Reel, add the music track segment to A1 (audio track)
+                    // This creates a visual representation of the music on the timeline
+                    if currentProject.type == .highlightReel {
+                        // Find the audio-only clip (music track)
+                        if let musicClip = currentProject.clips.first(where: { $0.type == .audioOnly }) {
+                            // Create an audio segment spanning the full duration of the music
+                            let audioSegment = Segment(
+                                id: UUID(),
+                                sourceClipID: musicClip.id,
+                                sourceStart: 0.0,
+                                sourceEnd: musicClip.duration,
+                                enabled: true,
+                                colorIndex: 11, // Grey color for audio (index 11 in highlightReelColors)
+                                compositionStartTime: 0.0
+                            )
+                            
+                            // Add to segments array
+                            updatedProject.segments.append(audioSegment)
+                            
+                            // Add to A1 audio track
+                            if let audioTrackIndex = updatedProject.tracks.firstIndex(where: { $0.kind == .audio && $0.index == 0 }) {
+                                updatedProject.tracks[audioTrackIndex].segments = [audioSegment.id]
+                                print("SkipSlate: ✅ Auto-edit: Added music segment '\(musicClip.fileName)' to A1 (audio track), duration: \(musicClip.duration)s")
+                            } else {
+                                // Create A1 track if it doesn't exist
+                                let audioTrack = TimelineTrack(kind: .audio, index: 0, segments: [audioSegment.id])
+                                updatedProject.tracks.append(audioTrack)
+                                print("SkipSlate: ✅ Auto-edit: Created A1 track and added music segment '\(musicClip.fileName)'")
+                            }
+                        } else {
+                            print("SkipSlate: ⚠️ Auto-edit: No audio-only clip found for audio track segment")
+                        }
+                    }
+                    
                     project = updatedProject
                     
                     // Reset modification flag after fresh Auto Edit
@@ -1620,6 +1654,29 @@ class ProjectViewModel: ObservableObject {
             project.segments[index].enabled.toggle()
             debouncedRebuild() // Use debounced rebuild for rapid toggles
         }
+    }
+    
+    /// Select all clip segments (not gaps)
+    func selectAllSegments() {
+        let clipSegmentIDs = segments.filter { $0.kind == .clip }.map { $0.id }
+        selectedSegmentIDs = Set(clipSegmentIDs)
+        selectedSegment = segments.first { $0.kind == .clip }
+        print("SkipSlate: ✅ Selected all \(clipSegmentIDs.count) segments")
+    }
+    
+    /// Trim segment with undo support - call this at the END of a trim operation
+    func trimSegmentUndoable(_ segmentID: Segment.ID, newSourceStart: Double, newSourceEnd: Double, newCompositionStart: Double? = nil) {
+        guard let index = project.segments.firstIndex(where: { $0.id == segmentID }) else { return }
+        
+        performUndoableChange("Trim segment") {
+            project.segments[index].sourceStart = newSourceStart
+            project.segments[index].sourceEnd = newSourceEnd
+            if let compStart = newCompositionStart {
+                project.segments[index].compositionStartTime = compStart
+            }
+            hasUserModifiedAutoEdit = true
+        }
+        // Note: immediateRebuild is called by performUndoableChange
     }
     
     func updateSegmentTiming(_ segment: Segment, start: Double, end: Double) {
@@ -3058,80 +3115,75 @@ class ProjectViewModel: ObservableObject {
             return
         }
         
-        // Calculate offset in composition time
-        let compositionOffset = cutTime - segmentCompStart
-        
-        // Calculate corresponding offset in source time
-        // Ratio: compositionOffset / segmentDuration = sourceOffset / sourceDuration
-        let sourceDuration = segment.sourceEnd - segment.sourceStart
-        let sourceOffset = (compositionOffset / segment.duration) * sourceDuration
-        let newSourceSplitPoint = segment.sourceStart + sourceOffset
-        
-        // Validate source split point is within bounds
-        guard newSourceSplitPoint > segment.sourceStart + 0.1 && newSourceSplitPoint < segment.sourceEnd - 0.1 else {
-            print("SkipSlate: ⚠️ Calculated source split point \(newSourceSplitPoint)s is invalid")
-            return
-        }
-        
-        // Create first segment (from start to cut point)
-        var segA = Segment(
-            id: UUID(),
-            sourceClipID: sourceClipID,
-            sourceStart: segment.sourceStart,
-            sourceEnd: newSourceSplitPoint,
-            enabled: segment.enabled,
-            colorIndex: segment.colorIndex,
-            compositionStartTime: segmentCompStart
-        )
-        segA.effects = segment.effects // Copy effects
-        
-        // Create second segment (from cut point to end)
-        var segB = Segment(
-            id: UUID(),
-            sourceClipID: sourceClipID,
-            sourceStart: newSourceSplitPoint,
-            sourceEnd: segment.sourceEnd,
-            enabled: segment.enabled,
-            colorIndex: segment.colorIndex,
-            compositionStartTime: cutTime  // Starts at the cut point
-        )
-        segB.effects = segment.effects // Copy effects
-        
-        print("SkipSlate: ✂️ Splitting segment:")
-        print("SkipSlate:   Original: compStart=\(segmentCompStart)s, duration=\(segment.duration)s, source=\(segment.sourceStart)s-\(segment.sourceEnd)s")
-        print("SkipSlate:   SegA: compStart=\(segA.compositionStartTime)s, duration=\(segA.duration)s, source=\(segA.sourceStart)s-\(segA.sourceEnd)s")
-        print("SkipSlate:   SegB: compStart=\(segB.compositionStartTime)s, duration=\(segB.duration)s, source=\(segB.sourceStart)s-\(segB.sourceEnd)s")
-        
-        // Find which track contains this segment and update track references
-        for (trackIndex, track) in project.tracks.enumerated() {
-            if let segmentIndex = track.segments.firstIndex(of: segment.id) {
-                // Replace the original segment ID with the two new segment IDs (maintaining order)
-                project.tracks[trackIndex].segments.remove(at: segmentIndex)
-                project.tracks[trackIndex].segments.insert(segB.id, at: segmentIndex)
-                project.tracks[trackIndex].segments.insert(segA.id, at: segmentIndex)
-                print("SkipSlate: ✅ Updated track \(trackIndex) with split segments")
-                break
+        // Wrap in undoable change
+        performUndoableChange("Split segment") {
+            // Calculate offset in composition time
+            let compositionOffset = cutTime - segmentCompStart
+            
+            // Calculate corresponding offset in source time
+            let sourceDuration = segment.sourceEnd - segment.sourceStart
+            let sourceOffset = (compositionOffset / segment.duration) * sourceDuration
+            let newSourceSplitPoint = segment.sourceStart + sourceOffset
+            
+            // Validate source split point is within bounds
+            guard newSourceSplitPoint > segment.sourceStart + 0.1 && newSourceSplitPoint < segment.sourceEnd - 0.1 else {
+                print("SkipSlate: ⚠️ Calculated source split point \(newSourceSplitPoint)s is invalid")
+                return
             }
+            
+            // Create first segment (from start to cut point)
+            var segA = Segment(
+                id: UUID(),
+                sourceClipID: sourceClipID,
+                sourceStart: segment.sourceStart,
+                sourceEnd: newSourceSplitPoint,
+                enabled: segment.enabled,
+                colorIndex: segment.colorIndex,
+                compositionStartTime: segmentCompStart
+            )
+            segA.effects = segment.effects
+            
+            // Create second segment (from cut point to end)
+            var segB = Segment(
+                id: UUID(),
+                sourceClipID: sourceClipID,
+                sourceStart: newSourceSplitPoint,
+                sourceEnd: segment.sourceEnd,
+                enabled: segment.enabled,
+                colorIndex: segment.colorIndex,
+                compositionStartTime: cutTime
+            )
+            segB.effects = segment.effects
+            
+            print("SkipSlate: ✂️ Splitting segment:")
+            print("SkipSlate:   Original: compStart=\(segmentCompStart)s, duration=\(segment.duration)s, source=\(segment.sourceStart)s-\(segment.sourceEnd)s")
+            print("SkipSlate:   SegA: compStart=\(segA.compositionStartTime)s, duration=\(segA.duration)s, source=\(segA.sourceStart)s-\(segA.sourceEnd)s")
+            print("SkipSlate:   SegB: compStart=\(segB.compositionStartTime)s, duration=\(segB.duration)s, source=\(segB.sourceStart)s-\(segB.sourceEnd)s")
+            
+            // Find which track contains this segment and update track references
+            for (trackIndex, track) in project.tracks.enumerated() {
+                if let segmentIndex = track.segments.firstIndex(of: segment.id) {
+                    project.tracks[trackIndex].segments.remove(at: segmentIndex)
+                    project.tracks[trackIndex].segments.insert(segB.id, at: segmentIndex)
+                    project.tracks[trackIndex].segments.insert(segA.id, at: segmentIndex)
+                    print("SkipSlate: ✅ Updated track \(trackIndex) with split segments")
+                    break
+                }
+            }
+            
+            // Replace original with two new segments in the segments array
+            project.segments.remove(at: index)
+            project.segments.insert(segB, at: index)
+            project.segments.insert(segA, at: index)
+            
+            // Mark as modified
+            hasUserModifiedAutoEdit = true
+            
+            // Clear selection
+            selectedSegmentIDs.removeAll()
+            selectedSegment = nil
         }
-        
-        // Replace original with two new segments in the segments array
-        project.segments.remove(at: index)
-        project.segments.insert(segB, at: index)
-        project.segments.insert(segA, at: index)
-        
-        // Mark as modified
-        hasUserModifiedAutoEdit = true
-        
-        // Clear selection - user can select either new segment if they want
-        selectedSegmentIDs.removeAll()
-        selectedSegment = nil
-        
-        // REMOVED: Manual playback state management
-        // PlayerViewModel handles playback preservation during composition rebuilds
-        // Preview should be a pure mirror - only reflect composition changes
-        
-        // Rebuild composition - PlayerViewModel will preserve playback state
-        immediateRebuild()
+        // Note: immediateRebuild is called by performUndoableChange
         
         print("SkipSlate: ✅ Split complete - segment split into two at \(cutTime)s")
     }

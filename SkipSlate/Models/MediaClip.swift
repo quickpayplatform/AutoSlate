@@ -54,6 +54,10 @@ enum MediaClipType {
 
 /// Color palette for clip visualization - ensures each clip gets a unique color
 struct ClipColorPalette {
+    /// AUDIO-ONLY COLOR: A distinctive warm teal blend of teal and orange
+    /// Used exclusively for audio-only clips (music tracks)
+    static let audioColor = Color(red: 0.40, green: 0.75, blue: 0.60)
+    
     /// Array of distinct colors for video clips (excluding green which is reserved for audio)
     /// SOLID COLORS: Removed opacity to make segments visually solid blocks
     static let colors: [Color] = [

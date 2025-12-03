@@ -8,6 +8,10 @@
 import SwiftUI
 
 struct ColorPalette {
+    /// AUDIO-ONLY COLOR: A distinctive warm teal blend of teal and orange
+    /// Used exclusively for audio-only clips (music tracks)
+    static let audioColor = Color(red: 0.40, green: 0.75, blue: 0.60)
+    
     static let accentColors: [Color] = [
         Color(red: 0.2, green: 0.6, blue: 1.0),      // Blue
         Color(red: 1.0, green: 0.4, blue: 0.4),      // Red

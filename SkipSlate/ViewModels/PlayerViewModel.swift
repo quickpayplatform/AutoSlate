@@ -31,6 +31,7 @@ class PlayerViewModel: NSObject, ObservableObject {
     @Published var isPlaying: Bool = false
     @Published var currentTime: Double = 0.0
     @Published var duration: Double = 0.0
+    @Published var playbackRate: Float = 1.0
     
     // SINGLE shared AVPlayer instance - never recreate
     var player: AVPlayer?
@@ -1770,6 +1771,33 @@ class PlayerViewModel: NSObject, ObservableObject {
             self?.isPlaying = false
             print("SkipSlate: Player paused, isPlaying: false")
         }
+    }
+    
+    /// Toggle play/pause state
+    func togglePlayPause() {
+        if isPlaying {
+            pause()
+        } else {
+            play()
+        }
+    }
+    
+    /// Set playback rate (negative for reverse, 0 = pause, positive for forward)
+    func setPlaybackRate(_ rate: Float) {
+        guard let player = player else { return }
+        
+        playbackRate = rate
+        
+        if rate == 0 {
+            pause()
+        } else {
+            player.rate = rate
+            DispatchQueue.main.async { [weak self] in
+                self?.isPlaying = rate != 0
+            }
+        }
+        
+        print("SkipSlate: Playback rate set to \(rate)x")
     }
     
     func seek(to time: Double, precise: Bool = false, completion: ((Bool) -> Void)? = nil) {
