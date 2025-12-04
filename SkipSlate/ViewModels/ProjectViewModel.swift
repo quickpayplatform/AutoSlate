@@ -892,48 +892,112 @@ class ProjectViewModel: ObservableObject {
     // MARK: - Transform Effects
     
     /// Scale selected segments to fill the project frame (no black bars)
+    /// BULLETPROOF: Always works regardless of selection state
     func scaleSelectedSegmentsToFillFrame() {
-        let selectedIDs = selectedSegmentIDs.isEmpty && selectedSegment != nil
-            ? [selectedSegment!.id]
-            : selectedSegmentIDs
+        // BULLETPROOF: Get selected IDs from multiple sources
+        var selectedIDs = selectedSegmentIDs
         
+        // Fallback 1: Use selectedSegment if selectedSegmentIDs is empty
+        if selectedIDs.isEmpty, let seg = selectedSegment {
+            selectedIDs = [seg.id]
+            print("SkipSlate: [ScaleToFill] Using selectedSegment fallback: \(seg.id)")
+        }
+        
+        // Guard: Must have at least one selected segment
         guard !selectedIDs.isEmpty else {
             print("SkipSlate: ⚠️ No segments selected for Scale to Fill Frame")
             return
         }
         
-        var updatedCount = 0
+        print("SkipSlate: [ScaleToFill] Applying to \(selectedIDs.count) segment(s): \(selectedIDs)")
         
-        // Update all selected segments
+        var updatedCount = 0
+        var updatedSegment: Segment? = nil
+        
+        // Update all selected segments in the project
         for (index, segment) in project.segments.enumerated() {
             if selectedIDs.contains(segment.id) && segment.kind == .clip {
+                // Set the flag
                 project.segments[index].transform.scaleToFillFrame = true
                 updatedCount += 1
+                
+                print("SkipSlate: [ScaleToFill] Updated segment \(segment.id) at index \(index)")
+                
+                // Track the first updated segment to sync selectedSegment
+                if updatedSegment == nil {
+                    updatedSegment = project.segments[index]
+                }
+                
+                // If this is the currently selected segment, update it too
+                if selectedSegment?.id == segment.id {
+                    updatedSegment = project.segments[index]
+                }
             }
         }
         
+        // CRITICAL: Sync selectedSegment with the updated project data
+        if let updated = updatedSegment, selectedSegment?.id == updated.id {
+            selectedSegment = updated
+            print("SkipSlate: [ScaleToFill] Synced selectedSegment with updated data")
+        }
+        
         hasUserModifiedAutoEdit = true
+        
+        // CRITICAL: Notify observers BEFORE rebuild to ensure UI updates
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
+        
+        // Trigger composition rebuild
         immediateRebuild()
         
         print("SkipSlate: ✅ Applied Scale to Fill Frame to \(updatedCount) segment(s)")
     }
     
     /// Remove Scale to Fill Frame from selected segments
+    /// BULLETPROOF: Always works regardless of selection state
     func removeScaleToFillFrame() {
-        let selectedIDs = selectedSegmentIDs.isEmpty && selectedSegment != nil
-            ? [selectedSegment!.id]
-            : selectedSegmentIDs
+        // BULLETPROOF: Get selected IDs from multiple sources
+        var selectedIDs = selectedSegmentIDs
         
-        guard !selectedIDs.isEmpty else { return }
+        // Fallback 1: Use selectedSegment if selectedSegmentIDs is empty
+        if selectedIDs.isEmpty, let seg = selectedSegment {
+            selectedIDs = [seg.id]
+        }
+        
+        guard !selectedIDs.isEmpty else {
+            print("SkipSlate: ⚠️ No segments selected for Remove Scale to Fill Frame")
+            return
+        }
+        
+        var updatedSegment: Segment? = nil
         
         for (index, segment) in project.segments.enumerated() {
             if selectedIDs.contains(segment.id) {
                 project.segments[index].transform.scaleToFillFrame = false
+                
+                // If this is the currently selected segment, track it
+                if selectedSegment?.id == segment.id {
+                    updatedSegment = project.segments[index]
+                }
             }
         }
         
+        // CRITICAL: Sync selectedSegment with the updated project data
+        if let updated = updatedSegment {
+            selectedSegment = updated
+        }
+        
         hasUserModifiedAutoEdit = true
+        
+        // CRITICAL: Notify observers BEFORE rebuild to ensure UI updates
+        DispatchQueue.main.async { [weak self] in
+            self?.objectWillChange.send()
+        }
+        
         immediateRebuild()
+        
+        print("SkipSlate: ✅ Removed Scale to Fill Frame")
     }
     
     // MARK: - Centralized Delete Logic

@@ -280,13 +280,22 @@ struct EffectsInspector: View {
                         .font(.headline)
                         .foregroundColor(AppColors.primaryText)
                     
-                    // Scale to Fill Frame button
+                    // Scale to Fill Frame button - TOGGLE behavior
                     Button(action: {
-                        projectViewModel.scaleSelectedSegmentsToFillFrame()
+                        // BULLETPROOF: Toggle based on current state
+                        if selectedSegment.transform.scaleToFillFrame {
+                            projectViewModel.removeScaleToFillFrame()
+                        } else {
+                            projectViewModel.scaleSelectedSegmentsToFillFrame()
+                        }
                     }) {
                         HStack {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            Text("Scale to Fill Frame")
+                            Image(systemName: selectedSegment.transform.scaleToFillFrame 
+                                ? "checkmark.circle.fill" 
+                                : "arrow.up.left.and.arrow.down.right")
+                            Text(selectedSegment.transform.scaleToFillFrame 
+                                ? "Scale to Fill: ON" 
+                                : "Scale to Fill Frame")
                         }
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.white)
@@ -300,18 +309,9 @@ struct EffectsInspector: View {
                         .cornerRadius(6)
                     }
                     .buttonStyle(.plain)
-                    .help("Scale and crop selected segments to fully cover the project frame")
-                    
-                    // Show status if scale to fill is active
-                    if selectedSegment.transform.scaleToFillFrame {
-                        HStack {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(AppColors.tealAccent)
-                            Text("Scale to Fill Frame is active")
-                                .font(.caption)
-                                .foregroundColor(AppColors.secondaryText)
-                        }
-                    }
+                    .help(selectedSegment.transform.scaleToFillFrame 
+                        ? "Click to disable Scale to Fill Frame" 
+                        : "Scale and crop to fully cover the project frame")
                     
                     Divider()
                         .padding(.vertical, 4)

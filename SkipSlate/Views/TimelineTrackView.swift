@@ -277,10 +277,9 @@ struct TimelineTrackView: View {
         var items: [TimelineItem] = []
         
         // Sort all segments (clips and gaps) by composition start time
-        // CRITICAL: Use >= 0, not > 0, because position 0.0 is valid (sentinel is -1.0)
         let sortedSegments = allSegments.sorted { seg1, seg2 in
-            let start1 = seg1.compositionStartTime >= 0 ? seg1.compositionStartTime : projectViewModel.compositionStart(for: seg1)
-            let start2 = seg2.compositionStartTime >= 0 ? seg2.compositionStartTime : projectViewModel.compositionStart(for: seg2)
+            let start1 = seg1.compositionStartTime > 0 ? seg1.compositionStartTime : projectViewModel.compositionStart(for: seg1)
+            let start2 = seg2.compositionStartTime > 0 ? seg2.compositionStartTime : projectViewModel.compositionStart(for: seg2)
             return start1 < start2
         }
         
@@ -310,8 +309,7 @@ struct TimelineTrackView: View {
         
         switch item {
         case .segment(let segment):
-            // CRITICAL: Use >= 0, not > 0, because position 0.0 is valid (sentinel is -1.0)
-            time = segment.compositionStartTime >= 0 ? segment.compositionStartTime : projectViewModel.compositionStart(for: segment)
+            time = segment.compositionStartTime > 0 ? segment.compositionStartTime : projectViewModel.compositionStart(for: segment)
         case .gap(_, let startTime):
             time = startTime
         }
@@ -662,8 +660,8 @@ struct TimelineSegmentView: View {
                                 onCrossTrackMove(segment.id, finalTime, absoluteY)
                                 print("SkipSlate: ✅ Cross-track move: segment \(segment.id) to time \(finalTime)s, yOffset \(absoluteY)")
                             } else {
-                                // Same track movement - use track.id which is the track this view represents
-                                // The parent view (EnhancedTimelineView) now passes fresh track data
+                                // Same track movement - use moveSegmentToTrackAndTime to ensure segment stays in track
+                                // This fixes orphaned segments that might have lost their track association
                                 projectViewModel.moveSegmentToTrackAndTime(segment.id, to: finalTime, targetTrackID: track.id)
                                 print("SkipSlate: ✅ Finished dragging segment \(segment.id) to position \(finalTime)s (snapped from \(rawFinalTime)s)")
                             }
