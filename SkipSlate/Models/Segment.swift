@@ -54,6 +54,11 @@ struct SegmentEffects: Codable {
     // Composition
     var compositionMode: CompositionMode = .fit
     var compositionAnchor: CompositionAnchor = .center
+    
+    // Audio
+    var audioVolume: Double = 1.0        // 0.0 to 1.0 (or higher for boost)
+    var audioFadeInDuration: Double = 0.0   // seconds (0 = no fade in)
+    var audioFadeOutDuration: Double = 0.0  // seconds (0 = no fade out)
 }
 
 /// Kind of timeline segment - clip or gap (black screen)

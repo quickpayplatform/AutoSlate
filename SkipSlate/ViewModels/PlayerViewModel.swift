@@ -61,6 +61,8 @@ class PlayerViewModel: NSObject, ObservableObject {
         
         // Initialize player early - this is the SINGLE stable instance
         player = AVPlayer()
+        // CRITICAL: Pause at end of video to stay on last frame (don't show thumbnail/first frame)
+        player?.actionAtItemEnd = .pause
         currentProject = project
         
         // Only rebuild composition if segments exist (e.g., after auto-edit or manual segment creation)
@@ -381,13 +383,17 @@ class PlayerViewModel: NSObject, ObservableObject {
         // CRITICAL: Always use the same player instance - never create a new one
         if player == nil {
             player = AVPlayer()
-            print("SkipSlate: Created new AVPlayer instance")
+            // CRITICAL: Pause at end of video to stay on last frame (don't show thumbnail/first frame)
+            player?.actionAtItemEnd = .pause
+            print("SkipSlate: Created new AVPlayer instance with actionAtItemEnd = .pause")
         }
         
         // Ensure player volume is set to 1.0 (default should be 1.0, but be explicit)
         player?.volume = 1.0
         player?.isMuted = false
-        print("SkipSlate: Set player volume to 1.0, muted: false")
+        // Ensure actionAtItemEnd is set (in case player was created elsewhere)
+        player?.actionAtItemEnd = .pause
+        print("SkipSlate: Set player volume to 1.0, muted: false, actionAtItemEnd: pause")
         
         // CRITICAL: Verify audio mix is set before replacing item
         if let audioMix = playerItem.audioMix {
@@ -929,42 +935,9 @@ class PlayerViewModel: NSObject, ObservableObject {
                         }
                     }
                     
-                    // Check for audio-only clips that should play during the entire composition
-                    // For image-only compositions, we typically want one audio track playing throughout
-                    // Find the first audio-only clip and use it for the full duration
-                    if hasAnyImage && !hasRealVideo {
-                        // Only insert audio once for the first image segment
-                        if compositionStart == .zero {
-                            let audioClips = project.clips.filter { $0.type == .audioOnly }
-                            if let audioClip = audioClips.first {
-                                let audioAsset = AVURLAsset(url: audioClip.url)
-                                do {
-                                    let sourceAudioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
-                                    if let sourceAudioTrack = sourceAudioTracks.first {
-                                        // Insert audio for the full composition duration
-                                        let audioDuration = try await audioAsset.load(.duration)
-                                        let insertDuration = min(totalDuration, audioDuration)
-                                        let audioTimeRange = CMTimeRange(
-                                            start: .zero,
-                                            duration: insertDuration
-                                        )
-                                        try mixedAudioTrack.insertTimeRange(
-                                            audioTimeRange,
-                                            of: sourceAudioTrack,
-                                            at: CMTime.zero
-                                        )
-                                        print("SkipSlate: Inserted audio track for image-only composition, duration: \(CMTimeGetSeconds(insertDuration))s, from clip: \(audioClip.fileName)")
-                                    } else {
-                                        print("SkipSlate: No audio track found in audio clip: \(audioClip.fileName)")
-                                    }
-                                } catch {
-                                    print("SkipSlate: Error inserting audio for image-only composition: \(error)")
-                                }
-                            } else {
-                                print("SkipSlate: No audio-only clips found in project (has \(project.clips.count) clips)")
-                            }
-                        }
-                    }
+                    // Note: Audio for image-only compositions is now handled at the end
+                    // along with other audio track processing, respecting any audio segments
+                    // that may have been cut/trimmed by the user
                     
                     continue
                 }
@@ -1251,60 +1224,65 @@ class PlayerViewModel: NSObject, ObservableObject {
             }
         }
         
-        // CRITICAL: For Highlight Reel (and other projects with audio-only music tracks),
-        // insert the music track to play throughout the entire composition
-        // This should happen AFTER all video segments are inserted
-        if project.type == .highlightReel || project.type == .musicVideo || project.type == .danceVideo {
-            let audioOnlyClips = project.clips.filter { $0.type == .audioOnly }
-            if let musicClip = audioOnlyClips.first {
-                print("SkipSlate: Inserting music track '\(musicClip.fileName)' for full composition duration")
-                let musicAsset = AVURLAsset(url: musicClip.url)
-                do {
-                    let sourceAudioTracks = try await musicAsset.loadTracks(withMediaType: .audio)
-                    if let sourceAudioTrack = sourceAudioTracks.first {
-                        let musicDuration = try await musicAsset.load(.duration)
-                        // Use the composition's total duration (calculated from segments)
-                        let insertDuration = min(totalDuration, musicDuration)
-                        
-                        // Insert music into the mixed audio track (for video projects)
-                        // Check if mixed audio track already has content
-                        let existingAudioDuration = CMTimeGetSeconds(mixedAudioTrack.timeRange.duration)
-                        if existingAudioDuration == 0 {
-                            // Audio track is empty, insert music from the start
-                            let audioTimeRange = CMTimeRange(
-                                start: .zero,
-                                duration: insertDuration
-                            )
-                            try mixedAudioTrack.insertTimeRange(
-                                audioTimeRange,
-                                of: sourceAudioTrack,
-                                at: .zero
-                            )
-                            print("SkipSlate: ✓ Inserted music track for full composition duration: \(CMTimeGetSeconds(insertDuration))s")
-                        } else {
-                            // Audio track already has content (from video segments with audio)
-                            // For Highlight Reel, music is primary - insert it anyway
-                            // The audio mix will handle volume levels
-                            let audioTimeRange = CMTimeRange(
-                                start: .zero,
-                                duration: insertDuration
-                            )
-                            // Insert music track (will mix with any existing audio)
-                            try mixedAudioTrack.insertTimeRange(
-                                audioTimeRange,
-                                of: sourceAudioTrack,
-                                at: .zero
-                            )
-                            print("SkipSlate: ✓ Inserted music track (mixing with video audio if present): \(CMTimeGetSeconds(insertDuration))s")
-                        }
-                    } else {
-                        print("SkipSlate: ⚠ No audio tracks found in music clip: \(musicClip.fileName)")
+        // CRITICAL: Audio insertion logic - respects user edits (cuts/trims/deletes)
+        // Check if any audio segments were processed from audio tracks
+        let audioTracksWithContent = audioTracksByTrackID.values.filter { $0.timeRange.duration > .zero }
+        let hasAudioSegmentsOnTracks = !audioTracksWithContent.isEmpty
+        
+        // Check if we need to handle audio-only clips (for highlight reels, music videos, image-only projects)
+        let needsAudioOnlyClipHandling = project.type == .highlightReel || 
+                                          project.type == .musicVideo || 
+                                          project.type == .danceVideo ||
+                                          (!hasRealVideo && hasAnyImage)  // Image-only compositions
+        
+        if needsAudioOnlyClipHandling {
+            if hasAudioSegmentsOnTracks {
+                // Audio segments exist on audio tracks - they were already inserted respecting user edits
+                // DO NOT insert full music track - this would bypass cuts/trims/deletes
+                print("SkipSlate: ✓ Audio segments found on \(audioTracksWithContent.count) audio track(s) - using segment-based audio (respects cuts/trims)")
+                for (trackID, compositionTrack) in audioTracksByTrackID {
+                    let trackDuration = CMTimeGetSeconds(compositionTrack.timeRange.duration)
+                    if let track = project.tracks.first(where: { $0.id == trackID }) {
+                        print("SkipSlate:   - \(track.name): \(trackDuration)s of audio")
                     }
-                } catch {
-                    print("SkipSlate: ✗ Error inserting music track: \(error)")
                 }
             } else {
-                print("SkipSlate: ⚠ No audio-only clips found for music track (project type: \(project.type))")
+                // No audio segments on audio tracks - fall back to inserting full music
+                // This handles legacy projects or cases where audio segments weren't created
+                let audioOnlyClips = project.clips.filter { $0.type == .audioOnly }
+                if let musicClip = audioOnlyClips.first {
+                    print("SkipSlate: ⚠ No audio segments on audio tracks - inserting full music track '\(musicClip.fileName)' as fallback")
+                    let musicAsset = AVURLAsset(url: musicClip.url)
+                    do {
+                        let sourceAudioTracks = try await musicAsset.loadTracks(withMediaType: .audio)
+                        if let sourceAudioTrack = sourceAudioTracks.first {
+                            let musicDuration = try await musicAsset.load(.duration)
+                            // Use the composition's total duration (calculated from segments)
+                            let insertDuration = min(totalDuration, musicDuration)
+                            
+                            // Insert music into the mixed audio track
+                            let existingAudioDuration = CMTimeGetSeconds(mixedAudioTrack.timeRange.duration)
+                            if existingAudioDuration == 0 {
+                                let audioTimeRange = CMTimeRange(
+                                    start: .zero,
+                                    duration: insertDuration
+                                )
+                                try mixedAudioTrack.insertTimeRange(
+                                    audioTimeRange,
+                                    of: sourceAudioTrack,
+                                    at: .zero
+                                )
+                                print("SkipSlate: ✓ Inserted full music track (fallback): \(CMTimeGetSeconds(insertDuration))s")
+                            }
+                        } else {
+                            print("SkipSlate: ⚠ No audio tracks found in music clip: \(musicClip.fileName)")
+                        }
+                    } catch {
+                        print("SkipSlate: ✗ Error inserting music track: \(error)")
+                    }
+                } else {
+                    print("SkipSlate: ⚠ No audio-only clips found for music track (project type: \(project.type))")
+                }
             }
         }
         
@@ -1939,8 +1917,20 @@ class PlayerViewModel: NSObject, ObservableObject {
     
     @objc private func playerItemDidPlayToEnd(_ notification: Notification) {
         print("SkipSlate: PlayerItem reached end of playback")
-        // Optionally loop or pause
-        isPlaying = false
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            // Pause and stay on the last frame
+            self.isPlaying = false
+            // Seek to the exact end time to ensure we show the last frame
+            if let item = self.player?.currentItem {
+                let endTime = item.duration
+                if endTime.isValid && !endTime.isIndefinite {
+                    self.player?.seek(to: endTime, toleranceBefore: .zero, toleranceAfter: .zero)
+                    self.currentTime = CMTimeGetSeconds(endTime)
+                    print("SkipSlate: Seeked to end time \(CMTimeGetSeconds(endTime))s to hold last frame")
+                }
+            }
+        }
     }
     
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey : Any]?, context: UnsafeMutableRawPointer?) {

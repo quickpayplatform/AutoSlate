@@ -103,15 +103,16 @@ struct DaVinciStyleLayout<Content: View>: View {
     private var topTabBar: some View {
         HStack(spacing: 0) {
             // App Logo (top-left corner)
-            HStack(spacing: 12) {
+            HStack(spacing: 16) {
                 Image("AppLogo")
                     .resizable()
                     .interpolation(.high)
                     .antialiased(true)
                     .aspectRatio(contentMode: .fit)
-                    .frame(width: 24, height: 24)
+                    .frame(width: 72, height: 72)
                     .compositingGroup()
-                    .padding(.leading, 12)
+                    .padding(.leading, 16)
+                    .padding(.vertical, 8)
                 
                 // Project name
                 Text(projectViewModel.projectName)

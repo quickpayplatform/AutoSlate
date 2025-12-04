@@ -1422,19 +1422,38 @@ class ProjectViewModel: ObservableObject {
                     
                     // CRITICAL: For Highlight Reel, add the music track segment to A1 (audio track)
                     // This creates a visual representation of the music on the timeline
+                    // IMPORTANT: Audio segment must match video duration (currentTime holds total video duration)
                     if currentProject.type == .highlightReel {
                         // Find the audio-only clip (music track)
                         if let musicClip = currentProject.clips.first(where: { $0.type == .audioOnly }) {
-                            // Create an audio segment spanning the full duration of the music
-                            let audioSegment = Segment(
+                            // CRITICAL: Audio should end when video ends, not at full music duration
+                            // currentTime is the total duration of all video segments
+                            let totalVideoDuration = currentTime
+                            let audioEndTime = min(musicClip.duration, totalVideoDuration)
+                            
+                            print("SkipSlate: 🎵 Audio segment calculation:")
+                            print("SkipSlate:   Music clip duration: \(musicClip.duration)s")
+                            print("SkipSlate:   Total video duration: \(totalVideoDuration)s")
+                            print("SkipSlate:   Audio segment will end at: \(audioEndTime)s")
+                            
+                            // Create an audio segment matching the video duration
+                            var audioSegment = Segment(
                                 id: UUID(),
                                 sourceClipID: musicClip.id,
                                 sourceStart: 0.0,
-                                sourceEnd: musicClip.duration,
+                                sourceEnd: audioEndTime,
                                 enabled: true,
                                 colorIndex: 11, // Grey color for audio (index 11 in highlightReelColors)
                                 compositionStartTime: 0.0
                             )
+                            
+                            // Apply audio fade out if enabled in settings
+                            // Default: 2 second fade out at the end
+                            let fadeOutDuration: Double = 2.0
+                            if audioEndTime > fadeOutDuration {
+                                audioSegment.effects.audioFadeOutDuration = fadeOutDuration
+                                print("SkipSlate:   Applied \(fadeOutDuration)s audio fade out")
+                            }
                             
                             // Add to segments array
                             updatedProject.segments.append(audioSegment)
@@ -1442,7 +1461,8 @@ class ProjectViewModel: ObservableObject {
                             // Add to A1 audio track
                             if let audioTrackIndex = updatedProject.tracks.firstIndex(where: { $0.kind == .audio && $0.index == 0 }) {
                                 updatedProject.tracks[audioTrackIndex].segments = [audioSegment.id]
-                                print("SkipSlate: ✅ Auto-edit: Added music segment '\(musicClip.fileName)' to A1 (audio track), duration: \(musicClip.duration)s")
+                                print("SkipSlate: ✅ Auto-edit: Added music segment '\(musicClip.fileName)' to A1 (audio track)")
+                                print("SkipSlate:   Audio duration: \(audioEndTime)s (matches video duration)")
                             } else {
                                 // Create A1 track if it doesn't exist
                                 let audioTrack = TimelineTrack(kind: .audio, index: 0, segments: [audioSegment.id])

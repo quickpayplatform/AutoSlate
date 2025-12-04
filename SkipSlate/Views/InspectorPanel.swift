@@ -264,6 +264,7 @@ struct EffectsInspector: View {
                                 ),
                                 in: 0.0...2.0
                             )
+                            .tint(AppColors.orangeAccent)
                         }
                     }
                 }
@@ -339,6 +340,7 @@ struct EffectsInspector: View {
                             ),
                             in: 0.5...3.0
                         )
+                        .tint(AppColors.orangeAccent)
                     }
                     
                     // Position X
@@ -365,6 +367,7 @@ struct EffectsInspector: View {
                             ),
                             in: -100.0...100.0
                         )
+                        .tint(AppColors.orangeAccent)
                     }
                     
                     // Position Y
@@ -391,6 +394,7 @@ struct EffectsInspector: View {
                             ),
                             in: -100.0...100.0
                         )
+                        .tint(AppColors.orangeAccent)
                     }
                     
                     // Rotation
@@ -417,6 +421,7 @@ struct EffectsInspector: View {
                             ),
                             in: -180.0...180.0
                         )
+                        .tint(AppColors.orangeAccent)
                     }
                     
                     Button("Reset Transform") {
@@ -504,6 +509,7 @@ struct EffectsInspector: View {
                             ),
                             in: 0.0...0.5
                         )
+                        .tint(AppColors.orangeAccent)
                     }
                 }
                 
@@ -736,6 +742,7 @@ struct AudioInspector: View {
                         ),
                         in: -12.0...12.0
                     )
+                    .tint(AppColors.orangeAccent)
                     
                     Text(String(format: "%.1f dB", projectViewModel.audioSettings.masterGainDB))
                         .foregroundColor(AppColors.secondaryText)

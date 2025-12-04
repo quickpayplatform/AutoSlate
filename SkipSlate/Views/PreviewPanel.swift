@@ -32,26 +32,28 @@ struct PreviewPanel: View {
         VStack(spacing: 0) {
             // Video preview - use the shared player directly
             GeometryReader { geometry in
-                // CRITICAL: Observe playerViewModel.duration to force update when composition changes
-                // When composition is rebuilt, duration changes, triggering view update
-                if let player = playerViewModel.player, playerViewModel.duration > 0 {
+                // CRITICAL: Show black if no segments exist (nothing to preview)
+                // Only show the video player if there are segments AND the player is ready
+                let hasSegments = !projectViewModel.segments.isEmpty
+                
+                if hasSegments, let player = playerViewModel.player, playerViewModel.duration > 0 {
                     VideoPlayerView(player: player)
                         .frame(width: geometry.size.width, height: geometry.size.height)
                         .background(Color.black)
                 } else {
+                    // No segments = pure black screen with no text
+                    // This represents "nothing on the timeline = nothing in preview"
                     Color.black
                         .frame(width: geometry.size.width, height: geometry.size.height)
-                        .overlay(
-                            Text(playerViewModel.duration > 0 ? "Loading..." : "No player available")
-                                .foregroundColor(.white)
-                        )
                 }
             }
             
-            // Transport controls
-            TransportControls(playerViewModel: playerViewModel)
-                .padding()
-                .background(AppColors.panelBackground)
+            // Transport controls - only show if there are segments
+            if !projectViewModel.segments.isEmpty {
+                TransportControls(playerViewModel: playerViewModel)
+                    .padding()
+                    .background(AppColors.panelBackground)
+            }
         }
     }
 }
@@ -132,6 +134,7 @@ struct TransportControls: View {
                     ),
                     in: 0...max(playerViewModel.duration, 1.0)
                 )
+                .tint(AppColors.tealAccent)
                 
                 Text(timeString(from: playerViewModel.duration))
                     .font(.caption)
@@ -154,7 +157,7 @@ struct TransportControls: View {
                         .font(.title2)
                         .foregroundColor(AppColors.primaryText)
                         .frame(width: 40, height: 40)
-                        .background(Color.blue)
+                        .background(AppColors.orangeAccent)
                         .cornerRadius(20)
                 }
                 .buttonStyle(.plain)
