@@ -613,6 +613,126 @@ struct EffectsInspector: View {
                         .cornerRadius(8)
                     }
                 }
+                
+                Rectangle()
+                    .fill(AppColors.panelBorder.opacity(0.5))
+                    .frame(height: 1)
+                    .padding(.vertical, 8)
+                
+                // Audio Section
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Audio")
+                        .font(.headline)
+                        .foregroundColor(AppColors.primaryText)
+                    
+                    // Volume
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .foregroundColor(AppColors.tealAccent)
+                                .font(.system(size: 12))
+                            Text("Volume")
+                                .font(.caption)
+                                .foregroundColor(AppColors.primaryText)
+                            Spacer()
+                            Text(String(format: "%.0f%%", selectedSegment.effects.audioVolume * 100))
+                                .font(.caption)
+                                .foregroundColor(AppColors.secondaryText)
+                                .frame(width: 50)
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { selectedSegment.effects.audioVolume },
+                                set: { newValue in
+                                    updateSegmentEffects { effects in
+                                        effects.audioVolume = newValue
+                                    }
+                                }
+                            ),
+                            in: 0.0...2.0
+                        )
+                        .tint(AppColors.tealAccent)
+                    }
+                    
+                    // Fade In
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "waveform.path.ecg")
+                                .foregroundColor(AppColors.orangeAccent)
+                                .font(.system(size: 12))
+                            Text("Fade In")
+                                .font(.caption)
+                                .foregroundColor(AppColors.primaryText)
+                            Spacer()
+                            Text(String(format: "%.1fs", selectedSegment.effects.audioFadeInDuration))
+                                .font(.caption)
+                                .foregroundColor(AppColors.secondaryText)
+                                .frame(width: 50)
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { selectedSegment.effects.audioFadeInDuration },
+                                set: { newValue in
+                                    updateSegmentEffects { effects in
+                                        effects.audioFadeInDuration = newValue
+                                    }
+                                }
+                            ),
+                            in: 0.0...5.0
+                        )
+                        .tint(AppColors.orangeAccent)
+                    }
+                    
+                    // Fade Out
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Image(systemName: "waveform.path.ecg")
+                                .foregroundColor(AppColors.orangeAccent)
+                                .font(.system(size: 12))
+                                .scaleEffect(x: -1, y: 1)
+                            Text("Fade Out")
+                                .font(.caption)
+                                .foregroundColor(AppColors.primaryText)
+                            Spacer()
+                            Text(String(format: "%.1fs", selectedSegment.effects.audioFadeOutDuration))
+                                .font(.caption)
+                                .foregroundColor(AppColors.secondaryText)
+                                .frame(width: 50)
+                        }
+                        Slider(
+                            value: Binding(
+                                get: { selectedSegment.effects.audioFadeOutDuration },
+                                set: { newValue in
+                                    updateSegmentEffects { effects in
+                                        effects.audioFadeOutDuration = newValue
+                                    }
+                                }
+                            ),
+                            in: 0.0...5.0
+                        )
+                        .tint(AppColors.orangeAccent)
+                    }
+                    
+                    // Mute button
+                    Button(action: {
+                        updateSegmentEffects { effects in
+                            effects.audioVolume = effects.audioVolume > 0 ? 0.0 : 1.0
+                        }
+                    }) {
+                        HStack {
+                            Image(systemName: selectedSegment.effects.audioVolume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                            Text(selectedSegment.effects.audioVolume > 0 ? "Mute" : "Unmute")
+                        }
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .frame(maxWidth: .infinity)
+                        .background(selectedSegment.effects.audioVolume > 0 ? AppColors.tealAccent.opacity(0.6) : AppColors.orangeAccent)
+                        .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                }
             } else {
                 // No selection
                 VStack(spacing: 12) {
