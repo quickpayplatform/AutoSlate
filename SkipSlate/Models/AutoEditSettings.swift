@@ -16,6 +16,9 @@ struct AutoEditSettings {
     var baseColorLook: ColorLookPreset
     var qualityThreshold: Float  // 0.0-1.0, minimum quality score to keep (default: 0.5)
     
+    // Quick Mode - skips AI frame analysis, creates segments based on beats/duration
+    var quickMode: Bool
+    
     // Effects & Transitions
     var transitionTypes: [TransitionType]  // Multiple transitions can be selected
     var transitionDuration: Double  // in seconds (0.1 - 1.0)
@@ -37,6 +40,7 @@ struct AutoEditSettings {
         normalizeLoudness: true,
         baseColorLook: .neutral,
         qualityThreshold: 0.5,
+        quickMode: false,
         transitionTypes: [.crossfade],
         transitionDuration: 0.25,
         enableFadeToBlack: true,

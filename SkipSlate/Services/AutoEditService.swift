@@ -218,23 +218,13 @@ class AutoEditService {
         let (minSpeech, minSilence, thresholdDB) = paceParameters(for: settings.pace, mode: .podcast)
         
         var allSegments: [Segment] = []
-        var clipColorMap: [UUID: Int] = [:] // Maps clipID to colorIndex - each clip gets unique color
-        var nextColorIndex = 0
         
-        // Process each clip
+        // Process each clip - use clip's pre-assigned colorIndex
         for clip in project.clips {
             guard let asset = assetsByClipID[clip.id] else { continue }
             
-            // Get or assign unique color for this clip
-            let clipColorIndex: Int
-            if let existingColor = clipColorMap[clip.id] {
-                clipColorIndex = existingColor
-            } else {
-                clipColorIndex = nextColorIndex % ColorPalette.accentColors.count
-                clipColorMap[clip.id] = clipColorIndex
-                nextColorIndex += 1
-                print("SkipSlate: Assigned color \(clipColorIndex) to clip \(clip.fileName)")
-            }
+            // Use the clip's pre-assigned colorIndex from import
+            let clipColorIndex = clip.colorIndex
             
             if let envelope = try await envelopeForClip(clip, assetsByClipID: assetsByClipID) {
                 // Detect speech segments
@@ -304,8 +294,6 @@ class AutoEditService {
         let (minSpeech, minSilence, thresholdDB) = paceParameters(for: settings.pace, mode: .documentary)
         
         var allSegments: [Segment] = []
-        var clipColorMap: [UUID: Int] = [:] // Maps clipID to colorIndex - each clip gets unique color
-        var nextColorIndex = 0
         
         // OPTIMIZATION: Process audio analysis in parallel (safe - doesn't use CIContext)
         print("SkipSlate: AutoEditService - Processing \(project.clips.count) clips for audio analysis (parallel)")
@@ -343,16 +331,8 @@ class AutoEditService {
             guard let asset = assetsByClipID[clip.id],
                   let envelope = envelopesByClipID[clip.id] else { continue }
             
-            // Get or assign unique color for this clip
-            let clipColorIndex: Int
-            if let existingColor = clipColorMap[clip.id] {
-                clipColorIndex = existingColor
-            } else {
-                clipColorIndex = nextColorIndex % ColorPalette.accentColors.count
-                clipColorMap[clip.id] = clipColorIndex
-                nextColorIndex += 1
-                print("SkipSlate: Assigned color \(clipColorIndex) to clip \(clip.fileName)")
-            }
+            // Use the clip's pre-assigned colorIndex from import
+            let clipColorIndex = clip.colorIndex
             
             var speechSegments = audioEngine.detectSpeechSegments(
                 envelope: envelope,
@@ -461,7 +441,6 @@ class AutoEditService {
             
             // Create mashup: alternate between video and images at beats
             var segments: [Segment] = []
-            var colorIndex = 0
             var videoClipIndex = 0
             var imageClipIndex = 0
             
@@ -484,11 +463,10 @@ class AutoEditService {
                                     sourceStart: 0.0, // Start from beginning of clip
                                     sourceEnd: clipDuration,
                                     enabled: true,
-                                    colorIndex: colorIndex % ColorPalette.accentColors.count
+                                    colorIndex: clip.colorIndex // Use clip's assigned color
                                 )
                                 segments.append(segment)
                                 print("SkipSlate: Added video segment from '\(clip.fileName)'")
-                                colorIndex += 1
                                 videoClipIndex += 1
                             }
                         } else if !imageClips.isEmpty {
@@ -499,11 +477,10 @@ class AutoEditService {
                                 sourceStart: 0.0,
                                 sourceEnd: min(duration, 3.0), // Images default to 3s
                                 enabled: true,
-                                colorIndex: colorIndex % ColorPalette.accentColors.count
+                                colorIndex: clip.colorIndex // Use clip's assigned color
                             )
                             segments.append(segment)
                             print("SkipSlate: Added image segment from '\(clip.fileName)'")
-                            colorIndex += 1
                             imageClipIndex += 1
                         } else {
                             print("SkipSlate: Warning - No visual clips available for segment at peak \(peak)")
@@ -527,7 +504,7 @@ class AutoEditService {
                             sourceStart: 0.0,
                             sourceEnd: min(remaining, clip.duration),
                             enabled: true,
-                            colorIndex: colorIndex % ColorPalette.accentColors.count
+                            colorIndex: clip.colorIndex // Use clip's assigned color
                         )
                         segments.append(segment)
                         print("SkipSlate: Added final video segment")
@@ -539,7 +516,7 @@ class AutoEditService {
                             sourceStart: 0.0,
                             sourceEnd: min(remaining, 3.0),
                             enabled: true,
-                            colorIndex: colorIndex % ColorPalette.accentColors.count
+                            colorIndex: clip.colorIndex // Use clip's assigned color
                         )
                         segments.append(segment)
                         print("SkipSlate: Added final image segment")
@@ -603,7 +580,6 @@ class AutoEditService {
         }
         
         var segments: [Segment] = []
-        var colorIndex = 0
         
         var previousTime: Double = 0
         for peak in beatPeaks {
@@ -616,10 +592,9 @@ class AutoEditService {
                         sourceStart: previousTime,
                         sourceEnd: peak,
                         enabled: true,
-                        colorIndex: colorIndex % ColorPalette.accentColors.count
+                        colorIndex: videoClip.colorIndex // Use clip's assigned color
                     )
                     segments.append(segment)
-                    colorIndex += 1
                 }
                 previousTime = peak
             }
@@ -632,7 +607,7 @@ class AutoEditService {
                 sourceStart: previousTime,
                 sourceEnd: videoClip.duration,
                 enabled: true,
-                colorIndex: colorIndex % ColorPalette.accentColors.count
+                colorIndex: videoClip.colorIndex // Use clip's assigned color
             )
             segments.append(segment)
         }
@@ -1046,14 +1021,14 @@ class AutoEditService {
         var segments: [Segment] = []
         let defaultDuration: Double = 3.0
         
-        for (index, clip) in imageClips.enumerated() {
+        for clip in imageClips {
             let segment = Segment(
                 id: UUID(),
                 sourceClipID: clip.id,
                 sourceStart: 0.0,
                 sourceEnd: defaultDuration,
                 enabled: true,
-                colorIndex: index % ColorPalette.accentColors.count
+                colorIndex: clip.colorIndex // Use clip's assigned color
             )
             segments.append(segment)
         }
@@ -1086,7 +1061,6 @@ class AutoEditService {
         targetLength: Double?
     ) throws -> [Segment] {
         var segments: [Segment] = []
-        var colorIndex = 0
         var videoIndex = 0
         var imageIndex = 0
         var currentTime: Double = 0
@@ -1108,7 +1082,7 @@ class AutoEditService {
                     sourceStart: 0.0,
                     sourceEnd: duration,
                     enabled: true,
-                    colorIndex: colorIndex % ColorPalette.accentColors.count
+                    colorIndex: clip.colorIndex // Use clip's assigned color
                 )
                 segments.append(segment)
                 currentTime += duration
@@ -1125,7 +1099,7 @@ class AutoEditService {
                     sourceStart: 0.0,
                     sourceEnd: imageDuration,
                     enabled: true,
-                    colorIndex: colorIndex % ColorPalette.accentColors.count
+                    colorIndex: clip.colorIndex // Use clip's assigned color
                 )
                 segments.append(segment)
                 currentTime += imageDuration
@@ -1142,8 +1116,6 @@ class AutoEditService {
             if let target = targetLength, currentTime >= target {
                 break
             }
-            
-            colorIndex += 1
             
             // If we've used all clips, break
             if videoClips.isEmpty && imageIndex >= imageClips.count {

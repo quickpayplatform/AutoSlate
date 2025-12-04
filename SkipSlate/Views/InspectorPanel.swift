@@ -519,51 +519,98 @@ struct EffectsInspector: View {
                     .padding(.vertical, 8)
                 
                 // Composition Section
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 16) {
                     Text("Composition")
                         .font(.headline)
                         .foregroundColor(AppColors.primaryText)
                     
-                    // Mode
-                    VStack(alignment: .leading, spacing: 8) {
+                    // Mode - Styled button grid
+                    VStack(alignment: .leading, spacing: 10) {
                         Text("Mode")
                             .font(.caption)
-                            .foregroundColor(AppColors.primaryText)
-                        Picker("", selection: Binding(
-                            get: { selectedSegment.effects.compositionMode },
-                            set: { newValue in
+                            .foregroundColor(AppColors.secondaryText)
+                        
+                        HStack(spacing: 8) {
+                            CompositionModeButton(
+                                title: "Fit",
+                                icon: "arrow.down.right.and.arrow.up.left",
+                                isSelected: selectedSegment.effects.compositionMode == .fit,
+                                color: AppColors.tealAccent
+                            ) {
                                 updateSegmentEffects { effects in
-                                    effects.compositionMode = newValue
+                                    effects.compositionMode = .fit
                                 }
                             }
-                        )) {
-                            Text("Fit").tag(CompositionMode.fit)
-                            Text("Fill").tag(CompositionMode.fill)
-                            Text("Fit with Letterbox").tag(CompositionMode.fitWithLetterbox)
+                            
+                            CompositionModeButton(
+                                title: "Fill",
+                                icon: "arrow.up.left.and.arrow.down.right",
+                                isSelected: selectedSegment.effects.compositionMode == .fill,
+                                color: AppColors.orangeAccent
+                            ) {
+                                updateSegmentEffects { effects in
+                                    effects.compositionMode = .fill
+                                }
+                            }
+                            
+                            CompositionModeButton(
+                                title: "Letterbox",
+                                icon: "rectangle.split.3x1",
+                                isSelected: selectedSegment.effects.compositionMode == .fitWithLetterbox,
+                                color: AppColors.tealAccent
+                            ) {
+                                updateSegmentEffects { effects in
+                                    effects.compositionMode = .fitWithLetterbox
+                                }
+                            }
                         }
-                        .pickerStyle(.menu)
                     }
                     
-                    // Anchor
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Anchor")
+                    // Anchor - 3x3 grid style
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Anchor Position")
                             .font(.caption)
-                            .foregroundColor(AppColors.primaryText)
-                        Picker("", selection: Binding(
-                            get: { selectedSegment.effects.compositionAnchor },
-                            set: { newValue in
-                                updateSegmentEffects { effects in
-                                    effects.compositionAnchor = newValue
+                            .foregroundColor(AppColors.secondaryText)
+                        
+                        // 3x3 Anchor Grid
+                        VStack(spacing: 4) {
+                            HStack(spacing: 4) {
+                                AnchorButton(anchor: .topLeft, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .topLeft }
+                                }
+                                AnchorButton(anchor: .top, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .top }
+                                }
+                                AnchorButton(anchor: .topRight, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .topRight }
                                 }
                             }
-                        )) {
-                            Text("Center").tag(CompositionAnchor.center)
-                            Text("Top").tag(CompositionAnchor.top)
-                            Text("Bottom").tag(CompositionAnchor.bottom)
-                            Text("Left").tag(CompositionAnchor.left)
-                            Text("Right").tag(CompositionAnchor.right)
+                            HStack(spacing: 4) {
+                                AnchorButton(anchor: .left, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .left }
+                                }
+                                AnchorButton(anchor: .center, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .center }
+                                }
+                                AnchorButton(anchor: .right, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .right }
+                                }
+                            }
+                            HStack(spacing: 4) {
+                                AnchorButton(anchor: .bottomLeft, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .bottomLeft }
+                                }
+                                AnchorButton(anchor: .bottom, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .bottom }
+                                }
+                                AnchorButton(anchor: .bottomRight, selected: selectedSegment.effects.compositionAnchor) {
+                                    updateSegmentEffects { effects in effects.compositionAnchor = .bottomRight }
+                                }
+                            }
                         }
-                        .pickerStyle(.menu)
+                        .padding(8)
+                        .background(Color.black.opacity(0.3))
+                        .cornerRadius(8)
                     }
                 }
             } else {
@@ -865,5 +912,80 @@ struct ColorInspector: View {
             )
             .frame(maxWidth: .infinity)
         }
+    }
+}
+
+// MARK: - Composition Mode Button
+
+struct CompositionModeButton: View {
+    let title: String
+    let icon: String
+    let isSelected: Bool
+    let color: Color
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(isSelected ? .white : AppColors.secondaryText)
+            .frame(maxWidth: .infinity)
+            .frame(height: 50)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isSelected ? color : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(isSelected ? color : color.opacity(0.4), lineWidth: isSelected ? 0 : 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Anchor Button (3x3 Grid)
+
+struct AnchorButton: View {
+    let anchor: CompositionAnchor
+    let selected: CompositionAnchor
+    let action: () -> Void
+    
+    private var isSelected: Bool { anchor == selected }
+    
+    private var iconName: String {
+        switch anchor {
+        case .topLeft: return "arrow.up.left"
+        case .top: return "arrow.up"
+        case .topRight: return "arrow.up.right"
+        case .left: return "arrow.left"
+        case .center: return "circle.fill"
+        case .right: return "arrow.right"
+        case .bottomLeft: return "arrow.down.left"
+        case .bottom: return "arrow.down"
+        case .bottomRight: return "arrow.down.right"
+        }
+    }
+    
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: iconName)
+                .font(.system(size: isSelected ? 14 : 12, weight: isSelected ? .bold : .regular))
+                .foregroundColor(isSelected ? .white : AppColors.secondaryText)
+                .frame(width: 32, height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isSelected ? AppColors.orangeAccent : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isSelected ? Color.clear : AppColors.tealAccent.opacity(0.3), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
     }
 }

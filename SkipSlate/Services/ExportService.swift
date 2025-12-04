@@ -1076,7 +1076,7 @@ class ColorCorrectionCompositor: NSObject, AVVideoCompositing {
             return
         }
         
-        // Get layer instructions - support multiple layers for highlight reel video stacking
+        // Get layer instructions - each instruction corresponds to explicit timeline segments
         guard !instruction.layerInstructions.isEmpty else {
             // No layer instructions - render black frame
             renderBlackFrame(request: asyncVideoCompositionRequest)
@@ -1115,17 +1115,7 @@ class ColorCorrectionCompositor: NSObject, AVVideoCompositing {
             return
         }
         
-        // CRITICAL: For highlight reels, check for overlay layer (second layer) to fill black space
-        var overlayPixelBuffer: CVPixelBuffer?
-        if instruction.layerInstructions.count > 1,
-           let overlayLayerInstruction = instruction.layerInstructions[1] as? AVMutableVideoCompositionLayerInstruction {
-            overlayPixelBuffer = asyncVideoCompositionRequest.sourceFrame(byTrackID: overlayLayerInstruction.trackID)
-            if overlayPixelBuffer != nil {
-                print("SkipSlate: ColorCorrectionCompositor - Found overlay frame for highlight reel stacking at time \(CMTimeGetSeconds(renderTime))s")
-            }
-        }
-        
-        // Use the main pixel buffer
+        // Use the main pixel buffer - no hidden overlays, render exactly what's in timeline
         let finalSourcePixelBuffer = mainPixelBuffer
         
         // Get opacity from main layer instruction
@@ -1251,13 +1241,10 @@ class ColorCorrectionCompositor: NSObject, AVVideoCompositing {
         }
         
         // ========================================================================
-        // CRITICAL HIGHLIGHT REEL RULE: FRAME MUST BE FILLED AT ALL TIMES
+        // VIDEO SCALING: Fill frame using max(scaleX, scaleY) to zoom/crop
         // ========================================================================
-        // For highlight reels, videos MUST fill the entire frame with NO black bars.
-        // This is achieved by:
-        // 1. Using max(scaleX, scaleY) to zoom/crop the video to fill the frame
-        // 2. If stacking is used (overlay track), the overlay fills remaining black space
-        // The frame MUST NEVER have black bars - it must be completely filled.
+        // Export shows ONLY what's in timeline segments - no hidden layers
+        // If users want layered videos, they must add them explicitly to V2+ tracks
         // ========================================================================
         // Scale and position the image to fill the render context
         // This ensures videos match the selected framing (aspect ratio)
@@ -1284,64 +1271,9 @@ class ColorCorrectionCompositor: NSObject, AVVideoCompositing {
             .translatedBy(x: -offsetX / scale, y: -offsetY / scale)
         
         // Apply transform and crop to render size
-        var transformedImage = filteredImage.transformed(by: transform)
+        // NOTE: No hidden overlay compositing - export shows ONLY what's in timeline segments
+        let transformedImage = filteredImage.transformed(by: transform)
             .cropped(to: CGRect(origin: .zero, size: renderSize))
-        
-        // ========================================================================
-        // CRITICAL HIGHLIGHT REEL RULE: COMPOSITE OVERLAY TO FILL BLACK SPACE
-        // ========================================================================
-        // If an overlay video exists (from video stacking), composite it to fill any remaining
-        // black space. This ensures the frame is COMPLETELY FILLED with video content.
-        // The main video is already zoomed to fill (above), and the overlay fills the gaps.
-        // ========================================================================
-        if let overlayBuffer = overlayPixelBuffer {
-            let overlayImage = CIImage(cvPixelBuffer: overlayBuffer)
-            let overlaySize = overlayImage.extent.size
-            
-            // Calculate how to position overlay to fill black space
-            // If main video is letterboxed (narrow), overlay fills top/bottom
-            // If main video is pillarboxed (wide), overlay fills left/right
-            let mainAspect = sourceSize.width / sourceSize.height
-            let renderAspect = renderSize.width / renderSize.height
-            let hasLetterboxing = mainAspect < renderAspect // Black bars top/bottom
-            let hasPillarboxing = mainAspect > renderAspect // Black bars left/right
-            
-            var overlayTransform = CGAffineTransform.identity
-            
-            if hasLetterboxing {
-                // Main video is narrow - overlay fills top and bottom
-                // Scale overlay to fill the black bars
-                let overlayScale = renderSize.width / overlaySize.width
-                let overlayScaledHeight = overlaySize.height * overlayScale
-                let blackBarHeight = (renderSize.height - scaledHeight) / 2.0
-                
-                // Position overlay to fill top black bar
-                overlayTransform = CGAffineTransform(scaleX: overlayScale, y: overlayScale)
-                    .translatedBy(x: 0, y: (overlayScaledHeight - renderSize.height) / 2.0 - blackBarHeight)
-            } else if hasPillarboxing {
-                // Main video is wide - overlay fills left and right
-                // Scale overlay to fill the black bars
-                let overlayScale = renderSize.height / overlaySize.height
-                let overlayScaledWidth = overlaySize.width * overlayScale
-                let blackBarWidth = (renderSize.width - scaledWidth) / 2.0
-                
-                // Position overlay to fill left black bar
-                overlayTransform = CGAffineTransform(scaleX: overlayScale, y: overlayScale)
-                    .translatedBy(x: (overlayScaledWidth - renderSize.width) / 2.0 - blackBarWidth, y: 0)
-            }
-            
-            let transformedOverlay = overlayImage.transformed(by: overlayTransform)
-                .cropped(to: CGRect(origin: .zero, size: renderSize))
-            
-            // Composite overlay over main video (overlay fills black space)
-            if let compositeFilter = CIFilter(name: "CISourceOverCompositing") {
-                compositeFilter.setValue(transformedImage, forKey: kCIInputBackgroundImageKey)
-                compositeFilter.setValue(transformedOverlay, forKey: kCIInputImageKey)
-                if let compositeOutput = compositeFilter.outputImage {
-                    transformedImage = compositeOutput.cropped(to: CGRect(origin: .zero, size: renderSize))
-                }
-            }
-        }
         
         context.render(transformedImage, to: outputPixelBuffer)
         asyncVideoCompositionRequest.finish(withComposedVideoFrame: outputPixelBuffer)
@@ -1466,12 +1398,10 @@ class ImageAwareCompositor: NSObject, AVVideoCompositing {
         }
         
         // ========================================================================
-        // CRITICAL HIGHLIGHT REEL RULE: FRAME MUST BE FILLED AT ALL TIMES
+        // VIDEO SCALING: Fill frame using max(scaleX, scaleY) to zoom/crop
         // ========================================================================
-        // For highlight reels, videos MUST fill the entire frame with NO black bars.
-        // This is achieved by using max(scaleX, scaleY) to zoom/crop the video to fill the frame.
-        // If video stacking is used, the overlay track fills remaining black space.
-        // The frame MUST NEVER have black bars - it must be completely filled.
+        // Export shows ONLY what's in timeline segments - no hidden layers
+        // If users want layered videos, they must add them explicitly to V2+ tracks
         // ========================================================================
         // Scale and position the video to fill the render context
         // This ensures videos match the selected framing (aspect ratio)

@@ -115,39 +115,59 @@ class HighlightReelService {
         }
         
         let videoMoments: [VideoMoment]
-        do {
-            videoMoments = try await visualAnalyzer.analyzeVideoClips(
-                clips: validVideoClips, // Use validated clips only
+        
+        // QUICK MODE: Skip AI frame analysis, create segments based on beats/duration
+        if settings.quickMode {
+            print("SkipSlate: ⚡ QUICK MODE - Skipping AI analysis, creating segments from beats")
+            progressCallback?("Quick mode - creating segments from beats...")
+            
+            // Convert CMTime beat times to Double for quick mode
+            let beatTimesDouble = musicAnalysis.beatTimes.map { $0.seconds }
+            
+            videoMoments = await createQuickModeVideoMoments(
+                clips: validVideoClips,
                 assetsByClipID: assetsByClipID,
-                progressCallback: { message in
-                    progressCallback?(message)
-                }
+                beatTimes: beatTimesDouble
             )
             
-            // CRITICAL: Validate that moments were generated from ALL clips
-            let uniqueClipIDsInMoments = Set(videoMoments.map { $0.clipID })
-            let uniqueClipIDsInClips = Set(validVideoClips.map { $0.id })
-            
-            if uniqueClipIDsInMoments.count < uniqueClipIDsInClips.count {
-                let missingClipIDs = uniqueClipIDsInClips.subtracting(uniqueClipIDsInMoments)
-                print("SkipSlate: ⚠️ WARNING: \(missingClipIDs.count) video clip(s) produced no moments:")
-                for clipID in missingClipIDs {
-                    if let clip = validVideoClips.first(where: { $0.id == clipID }) {
-                        print("SkipSlate:   - \(clip.fileName) (ID: \(clipID))")
+            print("SkipSlate: ⚡ Quick mode created \(videoMoments.count) moments in < 1 second")
+        } else {
+            // FULL MODE: AI frame-by-frame analysis (slow but detailed)
+            do {
+                videoMoments = try await visualAnalyzer.analyzeVideoClips(
+                    clips: validVideoClips,
+                    assetsByClipID: assetsByClipID,
+                    progressCallback: { message in
+                        progressCallback?(message)
+                    }
+                )
+                
+                // Validate that moments were generated from ALL clips
+                let uniqueClipIDsInMoments = Set(videoMoments.map { $0.clipID })
+                let uniqueClipIDsInClips = Set(validVideoClips.map { $0.id })
+                
+                if uniqueClipIDsInMoments.count < uniqueClipIDsInClips.count {
+                    let missingClipIDs = uniqueClipIDsInClips.subtracting(uniqueClipIDsInMoments)
+                    print("SkipSlate: ⚠️ WARNING: \(missingClipIDs.count) video clip(s) produced no moments:")
+                    for clipID in missingClipIDs {
+                        if let clip = validVideoClips.first(where: { $0.id == clipID }) {
+                            print("SkipSlate:   - \(clip.fileName) (ID: \(clipID))")
+                        }
                     }
                 }
+                
+                print("SkipSlate: Found \(videoMoments.count) video moments from \(uniqueClipIDsInMoments.count) unique clip(s)")
+            } catch {
+                print("SkipSlate: Error analyzing video clips: \(error)")
+                progressCallback?("Error analyzing videos - continuing with available moments")
+                videoMoments = []
             }
-            
-            print("SkipSlate: Found \(videoMoments.count) video moments from \(uniqueClipIDsInMoments.count) unique clip(s)")
-            print("SkipSlate: Moments per clip breakdown:")
-            for clip in validVideoClips {
-                let momentsFromClip = videoMoments.filter { $0.clipID == clip.id }
-                print("SkipSlate:   - \(clip.fileName): \(momentsFromClip.count) moments")
-            }
-        } catch {
-            print("SkipSlate: Error analyzing video clips: \(error)")
-            progressCallback?("Error analyzing videos - continuing with available moments")
-            videoMoments = [] // Continue with empty moments instead of crashing
+        }
+        
+        print("SkipSlate: Moments per clip breakdown:")
+        for clip in validVideoClips {
+            let momentsFromClip = videoMoments.filter { $0.clipID == clip.id }
+            print("SkipSlate:   - \(clip.fileName): \(momentsFromClip.count) moments")
         }
         
         let photoMoments = try await visualAnalyzer.analyzePhotoClips(
@@ -239,15 +259,60 @@ class HighlightReelService {
         }
         
         // 6.5. CINEMATIC SCORING ENGINE - Score ALL candidates (strict + fallback) for media cache
-        // CRASH-PROOF: Score both tiers so we can cache everything for Media tab
-        progressCallback?("Analyzing cinematic quality of \(videoCandidatesAll.count + photoCandidates.count) segments...")
-        let scoredCandidatesAll = try await scoreCandidatesWithCinematicEngine(
-            videoCandidates: videoCandidatesAll,  // Score ALL candidates for media cache
-            photoCandidates: photoCandidates,
-            project: project,
-            assetsByClipID: assetsByClipID,
-            progressCallback: progressCallback
-        )
+        // CRASH-PROOF: In QUICK MODE, skip frame-based scoring entirely to prevent crashes
+        // Quick mode assigns default scores and avoids Metal/GPU frame extraction
+        let scoredCandidatesAll: [ScoredSegment]
+        
+        if settings.quickMode {
+            // QUICK MODE: Skip cinematic scoring - assign default scores
+            // This prevents libRPAC.dylib crashes from frame extraction
+            print("SkipSlate: ⚡ QUICK MODE - Skipping cinematic scoring, assigning default scores")
+            progressCallback?("Quick mode: Skipping detailed analysis...")
+            
+            scoredCandidatesAll = (videoCandidatesAll + photoCandidates).map { candidate in
+                // Create a segment with default values
+                let segment = Segment(
+                    id: UUID(),
+                    sourceClipID: candidate.clipID,
+                    sourceStart: candidate.sourceStart.seconds,
+                    sourceEnd: CMTimeAdd(candidate.sourceStart, candidate.duration).seconds,
+                    enabled: true,
+                    colorIndex: 0
+                )
+                
+                let timeRange = CMTimeRange(
+                    start: candidate.sourceStart,
+                    duration: candidate.duration
+                )
+                
+                // Default score for quick mode - moderate quality, not rejected
+                // Create a CinematicScore with default values
+                let defaultScore = CinematicScore(
+                    faceScore: 0.5,
+                    compositionScore: 0.5,
+                    stabilityScore: 0.8,  // Assume stable (no shake detection in quick mode)
+                    exposureScore: 0.7    // Assume decent exposure
+                )
+                
+                return ScoredSegment(
+                    segment: segment,
+                    score: defaultScore,
+                    clipID: candidate.clipID,
+                    timeRange: timeRange
+                )
+            }
+            print("SkipSlate: ⚡ Quick mode assigned default scores to \(scoredCandidatesAll.count) candidates")
+        } else {
+            // NORMAL MODE: Full cinematic scoring with frame analysis
+            progressCallback?("Analyzing cinematic quality of \(videoCandidatesAll.count + photoCandidates.count) segments...")
+            scoredCandidatesAll = try await scoreCandidatesWithCinematicEngine(
+                videoCandidates: videoCandidatesAll,  // Score ALL candidates for media cache
+                photoCandidates: photoCandidates,
+                project: project,
+                assetsByClipID: assetsByClipID,
+                progressCallback: progressCallback
+            )
+        }
         
         // Separate scored candidates into strict and fallback tiers
         let scoredStrictSet = Set(videoCandidatesStrict.map { $0.clipID.uuidString + "\($0.sourceStart.seconds)-\($0.duration.seconds)" })
@@ -283,17 +348,11 @@ class HighlightReelService {
         // This allows Media tab to show ALL analyzed segments, not just the filtered ones
         var allAnalyzedSegments: [Segment] = []
         for scoredCandidate in scoredCandidates {
-            // CRASH-PROOF: Get colorIndex from clip (assigned during import)
+            // Get colorIndex from clip (assigned during import)
+            // Each clip has a unique colorIndex - no clamping needed with infinite color palette
             var colorIndex = 0 // Fallback default
             if let clip = project.clips.first(where: { $0.id == scoredCandidate.clipID }) {
                 colorIndex = clip.colorIndex
-                if project.type == .highlightReel {
-                    // CRASH-PROOF: Clamp colorIndex to valid range [0, 11]
-                    if colorIndex < 0 || colorIndex >= ClipColorPalette.highlightReelColorCount {
-                        print("SkipSlate: ⚠️ Clip colorIndex \(colorIndex) out of bounds for Highlight Reel, using 0")
-                        colorIndex = 0
-                    }
-                }
             }
             
             // Create a new Segment with unique ID for caching (these are separate from timeline segments)
@@ -372,21 +431,13 @@ class HighlightReelService {
         var segments: [Segment] = []
         
         for candidate in selectedSegments {
-            // CRASH-PROOF: Get colorIndex from clip (assigned during import)
-            // For Highlight Reel, clips are assigned colors 0-11 in specific order during import
+            // Get colorIndex from clip (assigned during import)
+            // Each clip has a unique colorIndex - segments inherit their clip's color
             var colorIndex = 0 // Fallback default
             
             if let clip = project.clips.first(where: { $0.id == candidate.clipID }) {
                 // Use the clip's pre-assigned colorIndex
                 colorIndex = clip.colorIndex
-                
-                // CRASH-PROOF: Validate colorIndex is within bounds for Highlight Reel
-                if project.type == .highlightReel {
-                    if colorIndex < 0 || colorIndex >= ClipColorPalette.highlightReelColorCount {
-                        print("SkipSlate: ⚠️ Clip colorIndex \(colorIndex) out of bounds for Highlight Reel, using 0")
-                        colorIndex = 0
-                    }
-                }
             } else {
                 print("SkipSlate: ⚠️ Clip not found for candidate.clipID: \(candidate.clipID), using default colorIndex 0")
             }
@@ -1496,8 +1547,6 @@ class HighlightReelService {
         targetLength: Double?
     ) throws -> [Segment] {
         var segments: [Segment] = []
-        var clipColorMap: [UUID: Int] = [:] // Maps clipID to colorIndex - each clip gets unique color
-        var nextColorIndex = 0
         var videoIndex = 0
         var imageIndex = 0
         var currentTime: Double = 0
@@ -1512,16 +1561,8 @@ class HighlightReelService {
             if useVideo && !videoClips.isEmpty {
                 let clip = videoClips[videoIndex % videoClips.count]
                 
-                // Get or assign unique color for this clip
-                let clipColorIndex: Int
-                if let existingColor = clipColorMap[clip.id] {
-                    clipColorIndex = existingColor
-                } else {
-                    clipColorIndex = nextColorIndex % ColorPalette.accentColors.count
-                    clipColorMap[clip.id] = clipColorIndex
-                    nextColorIndex += 1
-                }
-                
+                // Use the clip's pre-assigned colorIndex from import
+                // All segments from the same clip will share this color
                 let duration = min(segmentDuration, clip.duration)
                 let segment = Segment(
                     id: UUID(),
@@ -1529,7 +1570,7 @@ class HighlightReelService {
                     sourceStart: 0.0,
                     sourceEnd: duration,
                     enabled: true,
-                    colorIndex: clipColorIndex
+                    colorIndex: clip.colorIndex
                 )
                 segments.append(segment)
                 currentTime += duration
@@ -1539,23 +1580,14 @@ class HighlightReelService {
             } else if !imageClips.isEmpty {
                 let clip = imageClips[imageIndex % imageClips.count]
                 
-                // Get or assign unique color for this clip
-                let clipColorIndex: Int
-                if let existingColor = clipColorMap[clip.id] {
-                    clipColorIndex = existingColor
-                } else {
-                    clipColorIndex = nextColorIndex % ColorPalette.accentColors.count
-                    clipColorMap[clip.id] = clipColorIndex
-                    nextColorIndex += 1
-                }
-                
+                // Use the clip's pre-assigned colorIndex from import
                 let segment = Segment(
                     id: UUID(),
                     sourceClipID: clip.id,
                     sourceStart: 0.0,
                     sourceEnd: imageDuration,
                     enabled: true,
-                    colorIndex: clipColorIndex
+                    colorIndex: clip.colorIndex
                 )
                 segments.append(segment)
                 currentTime += imageDuration
@@ -1577,6 +1609,11 @@ class HighlightReelService {
     // MARK: - Cinematic Scoring Integration
     
     /// Score all candidates using the cinematic scoring engine
+    /// CRASH-PROOF: This function has multiple safety measures to prevent crashes:
+    /// 1. Sequential processing to prevent thread-safety issues
+    /// 2. Autoreleasepool to manage memory pressure
+    /// 3. Delays between processing to prevent QoS tracking overload
+    /// 4. Fallback scores for failed candidates
     private func scoreCandidatesWithCinematicEngine(
         videoCandidates: [HighlightSegmentCandidate],
         photoCandidates: [HighlightSegmentCandidate],
@@ -1587,12 +1624,18 @@ class HighlightReelService {
         var scored: [ScoredSegment] = []
         let allCandidates = videoCandidates + photoCandidates
         let total = allCandidates.count
+        var failedCount = 0
         
         print("SkipSlate: Starting cinematic scoring for \(total) candidates...")
         
         // CRITICAL: Process sequentially to prevent memory issues and crashes
         // Frame analysis uses CIContext which is NOT thread-safe
         for (index, candidate) in allCandidates.enumerated() {
+            // Add small delay between candidates to prevent QoS tracking overload (libRPAC.dylib crashes)
+            if index > 0 {
+                try await Task.sleep(nanoseconds: 50_000_000) // 50ms delay
+            }
+            
             if index % 5 == 0 || index == total - 1 {
                 progressCallback?("Scoring segments: \(index + 1)/\(total)")
             }
@@ -1613,15 +1656,16 @@ class HighlightReelService {
                 colorIndex: 0
             )
             
+            let timeRange = CMTimeRange(
+                start: candidate.sourceStart,
+                duration: candidate.duration
+            )
+            
             // Score the segment with error handling
             // CRITICAL: Process sequentially to prevent memory issues
+            // CRASH-PROOF: Use autoreleasepool to manage memory and add fallback scoring
             do {
                 let score = try await cinematicScorer.scoreSegment(segment, in: clip, asset: asset)
-                
-                let timeRange = CMTimeRange(
-                    start: candidate.sourceStart,
-                    duration: candidate.duration
-                )
                 
                 let scoredSegment = ScoredSegment(
                     segment: segment,
@@ -1641,8 +1685,24 @@ class HighlightReelService {
                 }
             } catch {
                 print("SkipSlate: Error scoring segment \(segment.sourceStart)-\(segment.sourceEnd)s: \(error)")
-                // Continue with next segment instead of crashing
-                continue
+                failedCount += 1
+                
+                // CRASH-PROOF: Add fallback score instead of skipping
+                // This ensures all candidates are still available even if scoring fails
+                let fallbackScore = CinematicScore(
+                    faceScore: 0.4,
+                    compositionScore: 0.4,
+                    stabilityScore: 0.6,
+                    exposureScore: 0.5
+                )
+                let fallbackScoredSegment = ScoredSegment(
+                    segment: segment,
+                    score: fallbackScore,
+                    clipID: candidate.clipID,
+                    timeRange: timeRange
+                )
+                scored.append(fallbackScoredSegment)
+                print("SkipSlate: Added fallback score for failed segment")
             }
             
             // Force memory cleanup every 10 segments to prevent buildup
@@ -1653,8 +1713,85 @@ class HighlightReelService {
             }
         }
         
-        print("SkipSlate: Cinematic scoring complete - \(scored.count)/\(total) segments scored successfully")
+        if failedCount > 0 {
+            print("SkipSlate: Cinematic scoring complete - \(scored.count)/\(total) segments scored (\(failedCount) used fallback scores)")
+        } else {
+            print("SkipSlate: Cinematic scoring complete - \(scored.count)/\(total) segments scored successfully")
+        }
         return scored
+    }
+    
+    // MARK: - Quick Mode
+    
+    /// Create VideoMoments quickly without AI analysis - just based on beats and clip duration
+    /// This is FAST (< 1 second) compared to full AI analysis (60-180+ seconds per clip)
+    private func createQuickModeVideoMoments(
+        clips: [MediaClip],
+        assetsByClipID: [UUID: AVAsset],
+        beatTimes: [Double]
+    ) async -> [VideoMoment] {
+        var moments: [VideoMoment] = []
+        
+        // Get segment durations from beat intervals (1-3 seconds typically)
+        var segmentDurations: [Double] = []
+        for i in 0..<beatTimes.count - 1 {
+            let duration = beatTimes[i + 1] - beatTimes[i]
+            // Group beats into 1-3 second segments
+            if duration >= 0.5 && duration <= 4.0 {
+                segmentDurations.append(duration)
+            }
+        }
+        
+        // Default segment duration if no good beat intervals
+        if segmentDurations.isEmpty {
+            segmentDurations = [1.5, 2.0, 2.5, 1.0, 2.0] // Mix of durations
+        }
+        
+        // Create moments for each clip
+        for clip in clips {
+            guard let asset = assetsByClipID[clip.id] else { continue }
+            
+            let clipDuration: Double
+            do {
+                let assetDuration = try await asset.load(.duration)
+                clipDuration = assetDuration.seconds
+            } catch {
+                print("SkipSlate: Quick mode - couldn't load duration for \(clip.fileName)")
+                continue
+            }
+            
+            // Create segments spread across the clip
+            var currentTime: Double = 0.0
+            var segmentIndex = 0
+            
+            while currentTime < clipDuration - 0.5 {
+                let segmentDuration = segmentDurations[segmentIndex % segmentDurations.count]
+                let endTime = min(currentTime + segmentDuration, clipDuration)
+                let actualDuration = endTime - currentTime
+                
+                // Only create segment if it's at least 0.5 seconds
+                if actualDuration >= 0.5 {
+                    // VideoMoment uses: clipID, sourceStart, duration, hasFaces, motionLevel, score, shotType
+                    let moment = VideoMoment(
+                        clipID: clip.id,
+                        sourceStart: CMTime(seconds: currentTime, preferredTimescale: 600),
+                        duration: CMTime(seconds: actualDuration, preferredTimescale: 600),
+                        hasFaces: false,
+                        motionLevel: 0.5,  // Neutral motion
+                        score: 0.5,        // Neutral score
+                        shotType: .medium  // Default shot type
+                    )
+                    moments.append(moment)
+                }
+                
+                currentTime = endTime
+                segmentIndex += 1
+            }
+            
+            print("SkipSlate: ⚡ Quick mode - created \(moments.filter { $0.clipID == clip.id }.count) moments for \(clip.fileName)")
+        }
+        
+        return moments
     }
     
 }

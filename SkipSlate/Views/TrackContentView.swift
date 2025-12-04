@@ -78,8 +78,14 @@ struct TrackContentView: View {
     
     // MARK: - Segment Rendering
     
+    // CRITICAL: Always get the FRESH track from projectViewModel to avoid stale segment lists
+    // The `track` parameter is a snapshot - we need the current version for accurate rendering
+    private var currentTrack: TimelineTrack {
+        projectViewModel.project.tracks.first { $0.id == track.id } ?? track
+    }
+    
     private var segmentsInTrack: [Segment] {
-        let segmentIDs = track.segments
+        let segmentIDs = currentTrack.segments  // Use FRESH track data
         return projectViewModel.segments.filter { segmentIDs.contains($0.id) && $0.enabled }
     }
     
@@ -119,15 +125,13 @@ struct TrackContentView: View {
         }
         
         // CRITICAL: Audio-only clips get the special audio color (teal-orange blend)
-        if clip.type == .audioOnly {
+        // colorIndex of -1 also indicates audio color
+        if clip.type == .audioOnly || clip.colorIndex == -1 {
             return ClipColorPalette.audioColor
         }
         
-        if projectViewModel.project.type == .highlightReel {
-            return ClipColorPalette.highlightReelColor(for: clip.colorIndex)
-        } else {
-            return ClipColorPalette.color(for: clip.colorIndex)
-        }
+        // Use unified color palette - each clip has unique colorIndex assigned during import
+        return ClipColorPalette.color(for: clip.colorIndex)
     }
     
     private func handleSegmentSelect(_ segment: Segment) {

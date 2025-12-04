@@ -75,14 +75,11 @@ struct TimelineTrackView: View {
                                 segment: segment,
                                 track: track,
                                 isSelected: projectViewModel.selectedSegmentIDs.contains(segment.id),
-                                isPlaying: isSegmentPlaying(segment),
                                 totalDuration: totalDuration,
                                 zoomLevel: zoomLevel,
                                 trackHeight: trackHeight,
                                 timelineWidth: timelineWidth,
                                 projectViewModel: projectViewModel,
-                                playerViewModel: playerViewModel,
-                                timelineViewModel: timelineViewModel,
                                 onSelect: { isCommandKey in
                                     // CRITICAL: Only allow selecting clip segments, not gaps
                                     guard segment.kind == .clip else {
@@ -205,14 +202,14 @@ struct TimelineTrackView: View {
         .frame(height: trackHeight)
     }
     
-    private var segmentsInOrder: [Segment] {
-        projectViewModel.segmentsInOrder(for: track)
+    // CRITICAL: Always get the FRESH track from projectViewModel to avoid stale segment lists
+    // The `track` parameter is a snapshot - we need the current version
+    private var currentTrack: TimelineTrack {
+        projectViewModel.project.tracks.first { $0.id == track.id } ?? track
     }
     
-    private func isSegmentPlaying(_ segment: Segment) -> Bool {
-        let currentTime = playerViewModel.currentTime
-        let compositionStart = projectViewModel.compositionStart(for: segment)
-        return currentTime >= compositionStart && currentTime < compositionStart + segment.duration
+    private var segmentsInOrder: [Segment] {
+        projectViewModel.segmentsInOrder(for: currentTrack)
     }
     
     // Handle dropping segments onto the timeline
@@ -384,19 +381,18 @@ struct TimelineTrackView: View {
     }
 }
 
-/// Individual segment view within a track with proper hit testing
+/// Individual segment view within a track - SIMPLIFIED for responsiveness
+/// Only uses projectViewModel for data, toolState for cursor behavior
 struct TimelineSegmentView: View {
     let segment: Segment
     let track: TimelineTrack
     let isSelected: Bool
-    let isPlaying: Bool
     let totalDuration: Double
     let zoomLevel: TimelineZoom
     let trackHeight: CGFloat
     let timelineWidth: CGFloat
     @ObservedObject var projectViewModel: ProjectViewModel
-    @ObservedObject var playerViewModel: PlayerViewModel
-    let timelineViewModel: TimelineViewModel?  // Optional - for EditorTool.segmentSelect support
+    // REMOVED: playerViewModel - not needed for segment display, improves performance
     let onSelect: (Bool) -> Void  // Bool indicates if Command key is pressed
     let onDelete: () -> Void
     let onTrimStart: (Double) -> Void
@@ -407,17 +403,15 @@ struct TimelineSegmentView: View {
     // ISOLATED tool state - no connection to player/preview
     @ObservedObject private var toolState = ToolState.shared
     
-    @State private var isHovered = false
     @State private var isDragging = false
     @State private var isTrimming = false
     @State private var hoveredEdge: TrimHandle?
     @State private var dragStartLocation: CGPoint = .zero
     @State private var dragStartTime: Double = 0
-    @State private var dragLastUpdateTime: TimeInterval? = nil  // Throttle drag updates
-    @State private var dragVisualOffset: CGFloat = 0  // Visual offset during drag for smooth motion
+    @State private var dragLastUpdateTime: TimeInterval? = nil
+    @State private var dragVisualOffset: CGFloat = 0
     
     private let trimHandleWidth: CGFloat = 8
-    private let trimZoneWidth: CGFloat = 8  // Zone near edge for trim detection
     
     private var segmentColor: Color {
         // CRASH-PROOF: Comprehensive validation
@@ -434,28 +428,20 @@ struct TimelineSegmentView: View {
         // Find the clip and use its assigned colorIndex
         if let clip = projectViewModel.clips.first(where: { $0.id == sourceClipID }) {
             // CRITICAL: Audio-only clips get the special audio color (teal-orange blend)
-            if clip.type == .audioOnly {
+            // colorIndex of -1 also indicates audio color
+            if clip.type == .audioOnly || clip.colorIndex == -1 {
                 return ClipColorPalette.audioColor
             }
             
-            // CRITICAL: For Highlight Reel, use Highlight Reel specific colors
-            if projectViewModel.project.type == .highlightReel {
-                // Use Highlight Reel color palette (0-11 for the 12 specific colors)
-                return ClipColorPalette.highlightReelColor(for: clip.colorIndex)
-            } else {
-                // Use default color palette for other project types
-                return ClipColorPalette.color(for: clip.colorIndex)
-            }
+            // Use unified color palette - works for all project types
+            // Each clip has a unique colorIndex assigned during import
+            return ClipColorPalette.color(for: clip.colorIndex)
         }
         
         // CRASH-PROOF: Fallback with bounds checking
         let hash = sourceClipID.uuidString.hashValue
         let fallbackIndex = abs(hash)
-        if projectViewModel.project.type == .highlightReel {
-            return ClipColorPalette.highlightReelColor(for: fallbackIndex % ClipColorPalette.highlightReelColorCount)
-        } else {
-            return ClipColorPalette.color(for: fallbackIndex)
-        }
+        return ClipColorPalette.color(for: fallbackIndex)
     }
     
     private var compositionStart: Double {
@@ -492,15 +478,6 @@ struct TimelineSegmentView: View {
                     // Solid border to separate segments - more visible for solid appearance
                     RoundedRectangle(cornerRadius: 4)
                         .strokeBorder(Color.white.opacity(0.5), lineWidth: 1.5)
-                )
-                .overlay(
-                    // Playing indicator (solid teal border when playing)
-                    Group {
-                        if isPlaying && !isSelected {
-                            RoundedRectangle(cornerRadius: 4)
-                                .stroke(AppColors.tealAccent, lineWidth: 2)
-                        }
-                    }
                 )
                 .overlay(
                     // SELECTED indicator (teal border when selected - DaVinci-style)
@@ -683,8 +660,9 @@ struct TimelineSegmentView: View {
                                 onCrossTrackMove(segment.id, finalTime, absoluteY)
                                 print("SkipSlate: ✅ Cross-track move: segment \(segment.id) to time \(finalTime)s, yOffset \(absoluteY)")
                             } else {
-                                // Same track movement - just update time position
-                                projectViewModel.moveSegment(segment.id, to: finalTime)
+                                // Same track movement - use track.id which is the track this view represents
+                                // The parent view (EnhancedTimelineView) now passes fresh track data
+                                projectViewModel.moveSegmentToTrackAndTime(segment.id, to: finalTime, targetTrackID: track.id)
                                 print("SkipSlate: ✅ Finished dragging segment \(segment.id) to position \(finalTime)s (snapped from \(rawFinalTime)s)")
                             }
                             

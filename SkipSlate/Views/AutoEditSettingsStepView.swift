@@ -20,6 +20,9 @@ struct AutoEditSettingsStepView: View {
     @State private var colorLook: ColorLookPreset = .neutral
     @State private var qualityThreshold: Float = 0.5
     
+    // Quick Mode - skips AI analysis for faster testing
+    @State private var quickMode: Bool = false
+    
     // Effects & Transitions
     @State private var selectedTransitions: Set<TransitionType> = [.crossfade]
     @State private var transitionDuration: Double = 0.25
@@ -36,6 +39,7 @@ struct AutoEditSettingsStepView: View {
             normalizeLoudness: smoothLoudness,
             baseColorLook: colorLook,
             qualityThreshold: qualityThreshold,
+            quickMode: quickMode,
             transitionTypes: Array(selectedTransitions),
             transitionDuration: transitionDuration,
             enableFadeToBlack: enableFadeToBlack,
@@ -105,6 +109,9 @@ struct AutoEditSettingsStepView: View {
                     
                     // Settings sections
                     VStack(alignment: .leading, spacing: 20) {
+                        // Quick Mode Toggle (at top for visibility)
+                        quickModeSection
+                        
                         // Target Length
                         targetLengthSection
                         
@@ -193,6 +200,44 @@ struct AutoEditSettingsStepView: View {
             }
             // Initialize quality threshold from current settings
             qualityThreshold = projectViewModel.autoEditSettings.qualityThreshold
+        }
+    }
+    
+    private var quickModeSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Text("⚡ Quick Mode")
+                    .autoEditSectionTitle()
+                Spacer()
+            }
+            
+            // Accent bar - orange to match app theme
+            Rectangle()
+                .fill(AutoEditTheme.orange)
+                .frame(width: 50, height: 3)
+                .cornerRadius(1.5)
+            
+            Toggle(isOn: $quickMode) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Skip AI Analysis")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AutoEditTheme.primaryText)
+                    Text("Creates segments instantly (< 1 sec) instead of detailed AI frame analysis (2-5 min). Good for quick testing.")
+                        .font(.system(size: 12))
+                        .foregroundColor(AutoEditTheme.secondaryText)
+                }
+            }
+            .toggleStyle(SwitchToggleStyle(tint: AutoEditTheme.orange))
+            .padding(.vertical, 8)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(quickMode ? AutoEditTheme.orange.opacity(0.15) : AutoEditTheme.panel)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(quickMode ? AutoEditTheme.orange.opacity(0.5) : AutoEditTheme.border, lineWidth: 1)
+            )
         }
     }
     

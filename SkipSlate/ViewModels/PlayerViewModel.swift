@@ -192,9 +192,6 @@ class PlayerViewModel: NSObject, ObservableObject {
     }
     
     private func projectHash(_ project: Project) -> Int {
-        // Create a simple hash based on segments and settings
-        // CRITICAL: Include compositionStartTime to detect segment position changes
-        // CRITICAL: Include transform effects to detect transform changes
         var hasher = Hasher()
         hasher.combine(project.segments.count)
         for segment in project.segments {
@@ -202,16 +199,25 @@ class PlayerViewModel: NSObject, ObservableObject {
             hasher.combine(segment.sourceStart)
             hasher.combine(segment.sourceEnd)
             hasher.combine(segment.enabled)
-            hasher.combine(segment.compositionStartTime) // CRITICAL: Include position in hash
-            hasher.combine(segment.kind.rawValue) // Include segment kind (clip vs gap)
-            
-            // CRITICAL: Include transform effects in hash to trigger rebuild on transform changes
+            hasher.combine(segment.compositionStartTime)
+            hasher.combine(segment.kind.rawValue)
             hasher.combine(segment.effects.scale)
             hasher.combine(segment.effects.positionX)
             hasher.combine(segment.effects.positionY)
             hasher.combine(segment.effects.rotation)
             hasher.combine(segment.transform.scaleToFillFrame)
         }
+        
+        // CRITICAL: Include track membership - which segments are on which tracks
+        // This ensures hash changes when segments move between tracks
+        for track in project.tracks {
+            hasher.combine(track.id)
+            hasher.combine(track.segments.count)
+            for segmentID in track.segments {
+                hasher.combine(segmentID)
+            }
+        }
+        
         hasher.combine(project.colorSettings.exposure)
         hasher.combine(project.colorSettings.contrast)
         hasher.combine(project.colorSettings.saturation)
@@ -685,15 +691,8 @@ class PlayerViewModel: NSObject, ObservableObject {
             videoTracksByTrackID[track.id] = videoTrack
         }
         
-        // CRITICAL: For highlight reels, create an overlay track for stacking videos to fill black space
-        var overlayVideoTrack: AVMutableCompositionTrack?
-        if project.type == .highlightReel {
-            overlayVideoTrack = composition.addMutableTrack(
-                withMediaType: .video,
-                preferredTrackID: kCMPersistentTrackID_Invalid
-            )
-            print("SkipSlate: Created overlay video track for highlight reel video stacking")
-        }
+        // NOTE: Hidden overlay video stacking removed - preview only shows what's in timeline segments
+        // If users want layered videos, they should manually add V2 tracks with segments
         
         // Create audio tracks for each audio track in the timeline (A1, A2, etc.)
         var audioTracksByTrackID: [UUID: AVMutableCompositionTrack] = [:]
@@ -728,19 +727,21 @@ class PlayerViewModel: NSObject, ObservableObject {
         let segmentDict = Dictionary(uniqueKeysWithValues: project.segments.map { ($0.id, $0) })
         
         // Use explicit compositionStartTime from segments (supports gaps - non-ripple behavior)
-        // If not set, fall back to calculating from track order (backward compatibility)
+        // If not set (sentinel value -1.0), fall back to calculating from track order (backward compatibility)
         var segmentCompositionStarts: [Segment.ID: CMTime] = [:]
         for track in project.tracks {
             var currentTime = CMTime.zero
             for segmentID in track.segments {
                 if let segment = segmentDict[segmentID], segment.enabled {
-                    // Use stored compositionStartTime if available, otherwise calculate sequentially
-                    if segment.compositionStartTime > 0 {
+                    // Use stored compositionStartTime if available (>= 0 means explicitly set)
+                    // CRITICAL FIX: Check >= 0, not > 0, because position 0.0 is valid!
+                    // The sentinel value for "not set" is -1.0 (see Segment.swift)
+                    if segment.compositionStartTime >= 0 {
                         segmentCompositionStarts[segmentID] = CMTime(seconds: segment.compositionStartTime, preferredTimescale: timescale)
                     } else {
-                        // Fallback: calculate sequentially (for backward compatibility)
-                    segmentCompositionStarts[segmentID] = currentTime
-                    currentTime = CMTimeAdd(currentTime, CMTime(seconds: segment.duration, preferredTimescale: timescale))
+                        // Fallback: calculate sequentially (for backward compatibility when compositionStartTime == -1)
+                        segmentCompositionStarts[segmentID] = currentTime
+                        currentTime = CMTimeAdd(currentTime, CMTime(seconds: segment.duration, preferredTimescale: timescale))
                     }
                 }
             }
@@ -840,33 +841,21 @@ class PlayerViewModel: NSObject, ObservableObject {
             }
         }
         
-        // CRITICAL: For highlight reels, pre-calculate aspect ratios for all video clips
-        // This allows synchronous lookup when finding complementary videos
-        var clipAspectRatios: [UUID: CGFloat] = [:]
-        if project.type == .highlightReel {
-            print("SkipSlate: Highlight Reel - Pre-calculating video aspect ratios for stacking...")
-            for clip in project.clips where clip.type == .videoWithAudio || clip.type == .videoOnly {
-                let asset = AVURLAsset(url: clip.url)
-                do {
-                    let videoTracks = try await asset.loadTracks(withMediaType: .video)
-                    if let videoTrack = videoTracks.first {
-                        let naturalSize = videoTrack.naturalSize
-                        if naturalSize.width > 0 && naturalSize.height > 0 {
-                            let aspectRatio = naturalSize.width / naturalSize.height
-                            clipAspectRatios[clip.id] = aspectRatio
-                            print("SkipSlate: Clip '\(clip.fileName)' aspect ratio: \(String(format: "%.2f", aspectRatio))")
-                        }
-                    }
-                } catch {
-                    print("SkipSlate: Error loading aspect ratio for clip '\(clip.fileName)': \(error)")
-                }
-            }
-            print("SkipSlate: Highlight Reel - Pre-calculated \(clipAspectRatios.count) video aspect ratios")
-        }
-        
-        // Process segments by iterating through tracks to maintain order
+        // Process segments by iterating through tracks
+        // CRITICAL FIX: Sort segments by compositionStartTime before processing
+        // AVFoundation requires segments to be inserted in chronological order!
+        // Without this, segments moved to position 0.0 after being at later positions
+        // will be processed last and cause incorrect compositions (black screens, duration mismatches)
+        // NOTE: Preview shows ONLY what's in timeline segments - no hidden complementary videos
         for track in project.tracks {
-            for segmentID in track.segments {
+            // CRITICAL: Sort segment IDs by their compositionStartTime before processing
+            let sortedSegmentIDs = track.segments.sorted { id1, id2 in
+                let start1 = segmentCompositionStarts[id1] ?? .zero
+                let start2 = segmentCompositionStarts[id2] ?? .zero
+                return CMTimeCompare(start1, start2) < 0
+            }
+            
+            for segmentID in sortedSegmentIDs {
                 guard let segment = segmentDict[segmentID], segment.enabled else { continue }
                 
                 // CRITICAL: Skip gap segments - they render as black (no media inserted)
@@ -1007,90 +996,7 @@ class PlayerViewModel: NSObject, ObservableObject {
                             }
                             hasRealVideo = true
                             print("SkipSlate: ✅ Successfully inserted video segment into track \(track.name) from clip '\(clip.fileName)'")
-                            
-                            // ========================================================================
-                            // CRITICAL HIGHLIGHT REEL RULE: FRAME MUST BE FILLED AT ALL TIMES
-                            // ========================================================================
-                            // For highlight reels, videos that don't fill the frame have TWO options:
-                            // 1. STACK: Place a complementary video in the black space (preferred)
-                            // 2. ZOOM: Scale/zoom the video to fill the frame (fallback, handled by compositor)
-                            // The frame MUST NEVER have black bars - it must be completely filled.
-                            // ========================================================================
-                            if project.type == .highlightReel, let overlayTrack = overlayVideoTrack {
-                                // Calculate if this video will have black space when scaled to fill frame
-                                let videoAspectRatio = sourceVideoTrack.naturalSize.width / sourceVideoTrack.naturalSize.height
-                                let renderAspectRatio = Double(renderSize.width) / Double(renderSize.height)
-                                
-                                // Detect black space: if aspect ratios differ significantly, there will be black bars
-                                let aspectRatioDiff = abs(videoAspectRatio - CGFloat(renderAspectRatio))
-                                let hasBlackSpace = aspectRatioDiff > 0.1 // Significant difference means black space
-                                
-                                if hasBlackSpace {
-                                    print("SkipSlate: 🎬 Highlight Reel - Detected black space for clip '\(clip.fileName)' (video aspect: \(String(format: "%.2f", videoAspectRatio)), render aspect: \(String(format: "%.2f", renderAspectRatio)))")
-                                    print("SkipSlate: 🎬 Highlight Reel - Attempting to stack complementary video to fill black space...")
-                                    
-                                    // OPTION 1: Try to find a complementary video that can fill the black space
-                                    // Use sync version if aspect ratios are pre-calculated, otherwise use async
-                                    var complementaryClip: MediaClip?
-                                    if !clipAspectRatios.isEmpty {
-                                        complementaryClip = findComplementaryVideoSync(
-                                            for: clip,
-                                            in: project,
-                                            videoAspectRatio: videoAspectRatio,
-                                            renderAspectRatio: renderAspectRatio,
-                                            clipAspectRatios: clipAspectRatios
-                                        )
-                                    } else {
-                                        // Fallback to async lookup (will be handled in a continuation)
-                                        complementaryClip = await findComplementaryVideoAsync(
-                                            for: clip,
-                                            in: project,
-                                            videoAspectRatio: videoAspectRatio,
-                                            renderAspectRatio: renderAspectRatio
-                                        )
-                                    }
-                                    
-                                    if let complementary = complementaryClip {
-                                        print("SkipSlate: ✅ Highlight Reel - Found complementary video: '\(complementary.fileName)' to fill black space")
-                                        
-                                        // Insert complementary video into overlay track
-                                        do {
-                                            let complementaryAsset = AVURLAsset(url: complementary.url)
-                                            let complementaryVideoTracks = try await complementaryAsset.loadTracks(withMediaType: .video)
-                                            
-                                            if let complementarySourceTrack = complementaryVideoTracks.first {
-                                                // Clamp to available duration
-                                                let complementaryAssetDuration = try await complementaryAsset.load(.duration)
-                                                let clampedDuration = min(segmentDuration, complementaryAssetDuration)
-                                                let clampedTimeRange = CMTimeRange(
-                                                    start: .zero,
-                                                    duration: clampedDuration
-                                                )
-                                                
-                                                try overlayTrack.insertTimeRange(
-                                                    clampedTimeRange,
-                                                    of: complementarySourceTrack,
-                                                    at: compositionStart
-                                                )
-                                                
-                                                print("SkipSlate: ✅ Highlight Reel - Stacked complementary video '\(complementary.fileName)' in overlay track at \(CMTimeGetSeconds(compositionStart))s")
-                                                print("SkipSlate: ✅ Highlight Reel - Frame will be filled via video stacking")
-                                            }
-                                        } catch {
-                                            print("SkipSlate: ⚠️ Error stacking complementary video: \(error)")
-                                            print("SkipSlate: 🎬 Highlight Reel - Falling back to zoom-to-fill (handled by compositor)")
-                                        }
-                                    } else {
-                                        print("SkipSlate: 🎬 Highlight Reel - No complementary video found to fill black space")
-                                        print("SkipSlate: 🎬 Highlight Reel - Video will be zoomed/scaled to fill frame (handled by compositor)")
-                                        // NOTE: The compositor (ColorCorrectionCompositor/ImageAwareCompositor) will automatically
-                                        // zoom the video to fill the frame using max(scaleX, scaleY) - this ensures NO black bars.
-                                    }
-                                } else {
-                                    // Video already fills frame - no action needed
-                                    print("SkipSlate: ✅ Highlight Reel - Video '\(clip.fileName)' already fills frame (aspect match)")
-                                }
-                            }
+                            // NOTE: No hidden video stacking - preview shows ONLY what's in timeline segments
                         } else {
                             print("SkipSlate: ⚠️ No video track found in clip '\(clip.fileName)' - skipping video insertion")
                         }
@@ -1128,6 +1034,12 @@ class PlayerViewModel: NSObject, ObservableObject {
                 }
             } else if clip.hasAudioTrack && (track.type == .videoPrimary || track.type == .videoOverlay) {
                 // Video clip with audio - insert into mixed audio track
+                // CRITICAL: For Highlight Reels, skip video clip audio - only use the music track
+                if project.type == .highlightReel {
+                    print("SkipSlate: ⏭ Highlight Reel - Skipping video clip audio for '\(clip.fileName)' (music track only)")
+                    continue
+                }
+                
             // Try to load audio even if hasAudioTrack=false (fallback for detection issues)
             var shouldTryAudio = clip.hasAudioTrack
             
@@ -1549,30 +1461,48 @@ class PlayerViewModel: NSObject, ObservableObject {
         videoComposition.renderSize = renderSize
         videoComposition.frameDuration = CMTime(value: 1, timescale: 24) // 24fps for frame-accurate timeline
         
-        // Create instructions for each segment with transitions
+        // Get ALL video tracks from composition
+        let allVideoTracks = composition.tracks(withMediaType: .video)
+        print("SkipSlate: Creating video composition with \(allVideoTracks.count) video tracks")
+        
+        // Create instructions for proper track layering
         var instructions: [AVMutableVideoCompositionInstruction] = []
         
-        if let videoTrack = composition.tracks(withMediaType: .video).first {
-            // If we have image segments, use custom compositor
-            if !imageSegmentsByTime.isEmpty {
-                let instruction = AVMutableVideoCompositionInstruction()
-                instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
-                
+        if !allVideoTracks.isEmpty {
+            let instruction = AVMutableVideoCompositionInstruction()
+            instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
+            
+            // CRITICAL: Create layer instructions for ALL video tracks
+            // Order matters: LAST layer instruction is rendered on TOP (foreground)
+            // 
+            // Track layering model:
+            // - V1 (index 0) = BASE layer (background) - rendered FIRST (bottom)
+            // - V2 (index 1) = OVERLAY layer (foreground) - rendered LAST (top)
+            // - V3 (index 2) = Even more foreground, etc.
+            //
+            // Higher track index = more foreground in video preview
+            // This supports future features like green screen overlays
+            var layerInstructions: [AVMutableVideoCompositionLayerInstruction] = []
+            
+            // Iterate in order: V1 first (back), V2 last (front)
+            // First instruction = background, Last instruction = foreground
+            for (index, videoTrack) in allVideoTracks.enumerated() {
                 let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
-                instruction.layerInstructions = [layerInstruction]
-                instructions.append(instruction)
-                
+                layerInstruction.setOpacity(1.0, at: .zero)
+                layerInstructions.append(layerInstruction)
+                print("SkipSlate: Added layer instruction for V\(index + 1) (trackID: \(videoTrack.trackID)) - \(index == 0 ? "BASE/background" : "OVERLAY/foreground")")
+            }
+            
+            instruction.layerInstructions = layerInstructions
+            instructions.append(instruction)
+            
+            print("SkipSlate: Video composition has \(layerInstructions.count) layer instructions (V1=back → V\(allVideoTracks.count)=front)")
+            
+            // Determine compositor based on content
+            if !imageSegmentsByTime.isEmpty {
                 // Use custom compositor that handles images
                 videoComposition.customVideoCompositorClass = ImageAwareCompositor.self
             } else {
-                // Standard video-only composition
-                let instruction = AVMutableVideoCompositionInstruction()
-                instruction.timeRange = CMTimeRange(start: .zero, duration: composition.duration)
-                
-                let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
-                instruction.layerInstructions = [layerInstruction]
-                instructions.append(instruction)
-                
                 // Only use custom compositor if color correction is needed
                 let needsColorCorrection = currentColorSettings.exposure != 0.0 || 
                                           currentColorSettings.contrast != 1.0 || 
@@ -2007,89 +1937,5 @@ class PlayerViewModel: NSObject, ObservableObject {
         print("SkipSlate: PlayerViewModel deinit")
     }
     
-    // MARK: - Highlight Reel Video Stacking
-    
-    /// Find a complementary video that can fill black space when the main video is scaled (async version)
-    private func findComplementaryVideoAsync(
-        for mainClip: MediaClip,
-        in project: Project,
-        videoAspectRatio: CGFloat,
-        renderAspectRatio: Double
-    ) async -> MediaClip? {
-        // Get all video clips except the main one
-        let otherVideoClips = project.clips.filter { clip in
-            (clip.type == .videoWithAudio || clip.type == .videoOnly) && clip.id != mainClip.id
-        }
-        
-        guard !otherVideoClips.isEmpty else {
-            return nil
-        }
-        
-        // Determine what kind of black space we have
-        let hasLetterboxing = videoAspectRatio < CGFloat(renderAspectRatio) // Video is narrower, black bars top/bottom
-        let hasPillarboxing = videoAspectRatio > CGFloat(renderAspectRatio) // Video is wider, black bars left/right
-        
-        // Find a complementary video with opposite aspect ratio
-        for clip in otherVideoClips {
-            do {
-                let asset = AVURLAsset(url: clip.url)
-                let videoTracks = try await asset.loadTracks(withMediaType: .video)
-                if let videoTrack = videoTracks.first {
-                    let clipAspectRatio = videoTrack.naturalSize.width / videoTrack.naturalSize.height
-                    
-                    // Check if this clip can fill the black space
-                    if hasLetterboxing && clipAspectRatio > CGFloat(renderAspectRatio) {
-                        // Main video is narrow, this clip is wide - can fill top/bottom
-                        return clip
-                    } else if hasPillarboxing && clipAspectRatio < CGFloat(renderAspectRatio) {
-                        // Main video is wide, this clip is narrow - can fill left/right
-                        return clip
-                    }
-                }
-            } catch {
-                // Skip this clip if we can't load it
-                continue
-            }
-        }
-        
-        // Fallback: return first available video clip if no perfect match found
-        return otherVideoClips.first
-    }
-    
-    /// Synchronous version that uses cached natural size if available
-    private func findComplementaryVideoSync(
-        for mainClip: MediaClip,
-        in project: Project,
-        videoAspectRatio: CGFloat,
-        renderAspectRatio: Double,
-        clipAspectRatios: [UUID: CGFloat]
-    ) -> MediaClip? {
-        // Get all video clips except the main one
-        let otherVideoClips = project.clips.filter { clip in
-            (clip.type == .videoWithAudio || clip.type == .videoOnly) && clip.id != mainClip.id
-        }
-        
-        guard !otherVideoClips.isEmpty else {
-            return nil
-        }
-        
-        // Determine what kind of black space we have
-        let hasLetterboxing = videoAspectRatio < CGFloat(renderAspectRatio)
-        let hasPillarboxing = videoAspectRatio > CGFloat(renderAspectRatio)
-        
-        // Find complementary video using cached aspect ratios
-        for clip in otherVideoClips {
-            if let clipAspectRatio = clipAspectRatios[clip.id] {
-                if hasLetterboxing && clipAspectRatio > CGFloat(renderAspectRatio) {
-                    return clip
-                } else if hasPillarboxing && clipAspectRatio < CGFloat(renderAspectRatio) {
-                    return clip
-                }
-            }
-        }
-        
-        // Fallback: return first available video
-        return otherVideoClips.first
-    }
 }
 

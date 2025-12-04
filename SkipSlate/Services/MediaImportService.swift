@@ -30,71 +30,45 @@ class MediaImportService {
             }
         }
         
-        // CRITICAL: For Highlight Reel, use specific color order (0-11 for 12 videos)
-        // CRASH-PROOF: Comprehensive error handling
-        if projectType == .highlightReel {
-            // Get existing video clips to determine starting color index
-            let existingVideoClips = existingClips.filter { clip in
-                clip.type == .videoWithAudio || clip.type == .videoOnly
-            }
-            var startingColorIndex = existingVideoClips.count
+        // CRITICAL: Assign UNIQUE colors to each clip - NO wrapping or reuse
+        // Each video/image clip gets its own unique color that all its segments will share
+        // Audio-only clips use the special audio color
+        
+        // Collect all existing color indices to avoid conflicts
+        var usedColorIndices = Set(existingClips.map { $0.colorIndex })
+        
+        // Calculate starting color index based on existing clips
+        // For video clips, continue from where existing clips left off
+        let existingVideoClips = existingClips.filter { $0.type == .videoWithAudio || $0.type == .videoOnly || $0.type == .image }
+        var nextColorIndex = existingVideoClips.count
+        
+        // Track video clip index separately for proper color assignment
+        var videoClipIndex = 0
+        
+        for (index, clip) in clips.enumerated() {
+            var updatedClip = clip
             
-            // CRASH-PROOF: Clamp starting index if out of bounds (shouldn't happen due to 12-video limit, but safety check)
-            if startingColorIndex < 0 || startingColorIndex >= ClipColorPalette.highlightReelColorCount {
-                print("SkipSlate: ⚠️ Starting color index \(startingColorIndex) out of bounds for Highlight Reel (max: 11), clamping to 0")
-                startingColorIndex = max(0, min(ClipColorPalette.highlightReelColorCount - 1, startingColorIndex))
-            }
-            
-            // Assign colors in the specific Highlight Reel order (0-11)
-            for (index, clip) in clips.enumerated() {
-                var updatedClip = clip
-                // Only assign specific colors to video clips
-                if clip.type == .videoWithAudio || clip.type == .videoOnly {
-                    // CRASH-PROOF: Ensure color index is within 0-11 range
-                    let rawColorIndex = startingColorIndex + index
-                    let colorIndex = max(0, min(11, rawColorIndex % ClipColorPalette.highlightReelColorCount))
-                    updatedClip.colorIndex = colorIndex
-                    clips[index] = updatedClip
-                    print("SkipSlate: Assigned Highlight Reel color index \(colorIndex) (Red=0, Blue=1, Green=2, etc.) to video clip: \(clip.fileName)")
-                } else {
-                    // Non-video clips (audio, images) use default color assignment
-                    var usedColorIndices = Set(existingClips.map { $0.colorIndex })
-                    var colorIndexToAssign = 0
-                    var attempts = 0
-                    // CRASH-PROOF: Limit attempts to prevent infinite loop
-                    while usedColorIndices.contains(colorIndexToAssign) && attempts < ClipColorPalette.colorCount {
-                        colorIndexToAssign = (colorIndexToAssign + 1) % ClipColorPalette.colorCount
-                        attempts += 1
-                    }
-                    updatedClip.colorIndex = colorIndexToAssign
-                    clips[index] = updatedClip
-                    usedColorIndices.insert(colorIndexToAssign)
-                    print("SkipSlate: Assigned color index \(colorIndexToAssign) to non-video clip: \(clip.fileName)")
-                }
-            }
-        } else {
-            // For other project types, use default color assignment
-            var usedColorIndices = Set(existingClips.map { $0.colorIndex })
-            var colorIndexToAssign = 0
-            for (index, clip) in clips.enumerated() {
-                var updatedClip = clip
-                
-                // Find next available color index that's not already in use
-                var attempts = 0
-                while usedColorIndices.contains(colorIndexToAssign) && attempts < ClipColorPalette.colorCount {
-                    colorIndexToAssign = (colorIndexToAssign + 1) % ClipColorPalette.colorCount
-                    attempts += 1
+            if clip.type == .audioOnly {
+                // Audio-only clips use a special reserved color index (-1 signals audio color)
+                // The actual color is determined by ClipColorPalette.audioColor
+                updatedClip.colorIndex = -1
+                print("SkipSlate: Audio-only clip '\(clip.fileName)' uses special audio color")
+            } else {
+                // Video and image clips get unique sequential colors
+                // Find next unused color index
+                var colorIndex = nextColorIndex + videoClipIndex
+                while usedColorIndices.contains(colorIndex) {
+                    colorIndex += 1
                 }
                 
-                updatedClip.colorIndex = colorIndexToAssign
-                clips[index] = updatedClip
-                usedColorIndices.insert(colorIndexToAssign)
+                updatedClip.colorIndex = colorIndex
+                usedColorIndices.insert(colorIndex)
+                videoClipIndex += 1
                 
-                print("SkipSlate: Assigned color index \(updatedClip.colorIndex) to clip: \(clip.fileName)")
-                
-                // Move to next color for next clip
-                colorIndexToAssign = (colorIndexToAssign + 1) % ClipColorPalette.colorCount
+                print("SkipSlate: Assigned unique color index \(colorIndex) to clip: \(clip.fileName)")
             }
+            
+            clips[index] = updatedClip
         }
         
         print("SkipSlate: MediaImportService returning \(clips.count) clips with unique colors")

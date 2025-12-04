@@ -53,77 +53,100 @@ enum MediaClipType {
 }
 
 /// Color palette for clip visualization - ensures each clip gets a unique color
+/// INFINITE COLORS: Each clip gets a unique color, no wrapping or reuse
 struct ClipColorPalette {
     /// AUDIO-ONLY COLOR: A distinctive warm teal blend of teal and orange
     /// Used exclusively for audio-only clips (music tracks)
     static let audioColor = Color(red: 0.40, green: 0.75, blue: 0.60)
     
-    /// Array of distinct colors for video clips (excluding green which is reserved for audio)
-    /// SOLID COLORS: Removed opacity to make segments visually solid blocks
-    static let colors: [Color] = [
-        Color.blue,
-        Color.orange,
-        Color.purple,
-        Color.pink,
-        Color.red,
-        Color.yellow,
-        Color.cyan,
-        Color.mint,
-        Color.indigo,
-        Color.teal,
-        Color.brown,
-        Color(red: 1.0, green: 0.5, blue: 0.0), // Orange-red
-        Color(red: 0.5, green: 0.0, blue: 1.0), // Purple-blue
-        Color(red: 1.0, green: 0.0, blue: 0.5), // Pink-red
-        Color(red: 0.0, green: 0.8, blue: 0.8), // Cyan-teal
-        Color(red: 0.8, green: 0.0, blue: 0.8), // Magenta
-        Color(red: 0.5, green: 0.5, blue: 0.0), // Olive
-        Color(red: 0.0, green: 0.5, blue: 0.5), // Dark cyan
-        Color(red: 0.5, green: 0.0, blue: 0.5), // Dark magenta
-        Color(red: 0.8, green: 0.4, blue: 0.0)  // Dark orange
-    ]
-    
-    static var colorCount: Int {
-        colors.count
-    }
-    
-    /// Get color for a given index (wraps around if index exceeds color count)
-    static func color(for index: Int) -> Color {
-        guard index >= 0 else { return colors[0] } // Safety check
-        return colors[abs(index) % colors.count]
-    }
-    
-    // MARK: - Highlight Reel Specific Colors (12 colors in exact order)
-    
-    /// Highlight Reel color palette - exactly 12 colors in specific order
-    /// SOLID COLORS: Removed opacity to make segments visually solid blocks
-    /// Color indices: 0=Red, 1=Blue, 2=Green, 3=Yellow, 4=Orange, 5=Purple, 6=Pink, 7=Teal, 8=Navy, 9=Maroon, 10=Gold, 11=Grey
-    static let highlightReelColors: [Color] = [
+    /// Base colors for the first 20 clips - handpicked for maximum distinction
+    /// After these, colors are generated algorithmically using Golden Ratio hue spacing
+    private static let baseColors: [Color] = [
         Color.red,                              // 0: Red
         Color.blue,                             // 1: Blue
         Color.green,                            // 2: Green
-        Color.yellow,                           // 3: Yellow
-        Color.orange,                           // 4: Orange
-        Color.purple,                           // 5: Purple
+        Color.orange,                           // 3: Orange
+        Color.purple,                           // 4: Purple
+        Color.yellow,                           // 5: Yellow
         Color.pink,                             // 6: Pink
         Color.teal,                             // 7: Teal
-        Color(red: 0.0, green: 0.0, blue: 0.5), // 8: Navy
-        Color(red: 0.5, green: 0.0, blue: 0.0), // 9: Maroon
-        Color(red: 1.0, green: 0.84, blue: 0.0), // 10: Gold
-        Color.gray                              // 11: Grey
+        Color.cyan,                             // 8: Cyan
+        Color.indigo,                           // 9: Indigo
+        Color.mint,                             // 10: Mint
+        Color.brown,                            // 11: Brown
+        Color(red: 1.0, green: 0.84, blue: 0.0), // 12: Gold
+        Color(red: 0.5, green: 0.0, blue: 0.0), // 13: Maroon
+        Color(red: 0.0, green: 0.0, blue: 0.5), // 14: Navy
+        Color(red: 0.8, green: 0.0, blue: 0.8), // 15: Magenta
+        Color(red: 1.0, green: 0.5, blue: 0.0), // 16: Orange-red
+        Color(red: 0.5, green: 0.0, blue: 1.0), // 17: Purple-blue
+        Color(red: 0.0, green: 0.6, blue: 0.4), // 18: Sea green
+        Color(red: 0.6, green: 0.4, blue: 0.2)  // 19: Sienna
     ]
     
+    /// Golden ratio for generating evenly distributed hues
+    private static let goldenRatio: Double = 0.618033988749895
+    
+    /// Number of base colors (for backward compatibility)
+    static var colorCount: Int {
+        baseColors.count
+    }
+    
+    /// Legacy constant for backward compatibility - no longer limits actual colors
     static let highlightReelColorCount: Int = 12
     
-    /// Get Highlight Reel color for a given index (0-11)
-    /// CRASH-PROOF: Validates index bounds
-    static func highlightReelColor(for index: Int) -> Color {
-        guard index >= 0 && index < highlightReelColorCount else {
-            // Safety fallback: use first color if index is out of bounds
-            print("SkipSlate: ⚠️ Highlight Reel color index \(index) out of bounds, using Red")
-            return highlightReelColors[0]
+    /// Generate a unique color for any index - INFINITE colors supported
+    /// Uses base colors for indices 0-19, then generates algorithmically
+    static func color(for index: Int) -> Color {
+        guard index >= 0 else { return baseColors[0] }
+        
+        // Use handpicked base colors for first 20 indices
+        if index < baseColors.count {
+            return baseColors[index]
         }
-        return highlightReelColors[index]
+        
+        // For indices beyond base colors, generate using Golden Ratio hue distribution
+        // This ensures each color is visually distinct from its neighbors
+        return generateColor(for: index)
+    }
+    
+    /// Get color for Highlight Reel - now uses the unified infinite color system
+    /// Kept for backward compatibility
+    static func highlightReelColor(for index: Int) -> Color {
+        return color(for: index)
+    }
+    
+    /// Generate a unique color using Golden Ratio hue distribution
+    /// This produces visually distinct colors even for very high indices
+    private static func generateColor(for index: Int) -> Color {
+        // Start from a different hue for indices beyond base colors
+        let adjustedIndex = index - baseColors.count
+        
+        // Use golden ratio to spread hues evenly
+        var hue = Double(adjustedIndex) * goldenRatio
+        hue = hue.truncatingRemainder(dividingBy: 1.0)
+        
+        // Vary saturation and brightness slightly to increase distinction
+        let saturationVariance = Double((adjustedIndex % 3)) * 0.1 // 0.0, 0.1, or 0.2
+        let brightnessVariance = Double((adjustedIndex % 4)) * 0.05 // 0.0, 0.05, 0.10, or 0.15
+        
+        let saturation = 0.7 + saturationVariance // Range: 0.7 - 0.9
+        let brightness = 0.85 - brightnessVariance // Range: 0.70 - 0.85
+        
+        return Color(hue: hue, saturation: saturation, brightness: brightness)
+    }
+    
+    /// Cache for generated colors to avoid recalculating
+    private static var colorCache: [Int: Color] = [:]
+    
+    /// Get or generate a cached color for an index
+    static func cachedColor(for index: Int) -> Color {
+        if let cached = colorCache[index] {
+            return cached
+        }
+        let newColor = color(for: index)
+        colorCache[index] = newColor
+        return newColor
     }
 }
 

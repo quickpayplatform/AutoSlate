@@ -170,17 +170,43 @@ class TransitionService {
         resolution: ResolutionPreset? = nil,
         aspectRatio: AspectRatio? = nil
     ) -> AVMutableVideoComposition? {
-        // Get all video tracks - we need to find the one with actual video content
-        // The first track is usually the main video track, but we should verify
+        // Get all video tracks from composition
         let allVideoTracks = composition.tracks(withMediaType: .video)
+        
+        // CRITICAL FIX: Build mapping from timeline tracks to composition tracks
+        // Composition tracks are created in the same order as timeline tracks
+        let videoTimelineTracks = project.tracks.filter { $0.kind == .video }
+        var timelineTrackToCompositionTrack: [UUID: AVMutableCompositionTrack] = [:]
+        
+        // Map timeline tracks to composition tracks by order (excluding image timing track at the end)
+        // Composition tracks are created: video tracks first (in timeline order), then imageTimingTrack
+        // So we match by index, skipping the last track if there are more composition tracks than timeline tracks
+        let compositionVideoTracksCount = min(allVideoTracks.count, videoTimelineTracks.count)
+        for i in 0..<compositionVideoTracksCount {
+            let timelineTrack = videoTimelineTracks[i]
+            let compositionTrack = allVideoTracks[i]
+            timelineTrackToCompositionTrack[timelineTrack.id] = compositionTrack
+            print("SkipSlate: TransitionService - Mapped timeline track \(timelineTrack.name) (index: \(timelineTrack.index)) to composition track ID: \(compositionTrack.trackID)")
+        }
+        
+        // Build mapping from segment ID to timeline track
+        var segmentToTimelineTrack: [UUID: TimelineTrack] = [:]
+        for track in videoTimelineTracks {
+            for segmentID in track.segments {
+                segmentToTimelineTrack[segmentID] = track
+            }
+        }
+        
+        // Get the "main" video track for render size calculation (fallback for track properties)
         let videoTrack = allVideoTracks.first { track in
             // Prefer tracks that have time ranges (actual content)
             return track.timeRange.duration > .zero
         } ?? allVideoTracks.first
         
         if let track = videoTrack {
-            print("SkipSlate: TransitionService - Selected main video track ID: \(track.trackID), duration: \(CMTimeGetSeconds(track.timeRange.duration))s, naturalSize: \(track.naturalSize)")
+            print("SkipSlate: TransitionService - Main video track ID: \(track.trackID), duration: \(CMTimeGetSeconds(track.timeRange.duration))s, naturalSize: \(track.naturalSize)")
         }
+        print("SkipSlate: TransitionService - Found \(allVideoTracks.count) composition tracks, \(videoTimelineTracks.count) timeline tracks, \(timelineTrackToCompositionTrack.count) mapped")
         
         // Determine render size - use provided resolution or fall back to project settings
         let effectiveResolution = resolution ?? project.resolution
@@ -239,23 +265,13 @@ class TransitionService {
         let allVideoTracksForFallback = composition.tracks(withMediaType: .video)
         print("SkipSlate: TransitionService - Found \(allVideoTracksForFallback.count) video tracks in composition")
         
-        // CRITICAL: For highlight reels, detect overlay track for video stacking
-        var overlayTrack: AVCompositionTrack?
-        if project.type == .highlightReel {
-            // Find overlay track (should be the last video track, or one that's not the main track)
-            let mainTrackID = videoTrack?.trackID
-            overlayTrack = allVideoTracksForFallback.first { track in
-                track.trackID != mainTrackID && track.timeRange.duration > .zero
-            }
-            if let overlay = overlayTrack {
-                print("SkipSlate: TransitionService - Found overlay track (ID: \(overlay.trackID)) for highlight reel video stacking")
-            }
-        }
+        // NOTE: Hidden overlay video stacking REMOVED - preview only shows what's in timeline segments
+        // If users want layered videos, they should manually add V2 tracks with segments
         
         // For image-only compositions, use the image timing track
         let imageTimingTrack = allVideoTracksForFallback.first { track in
             // Check if this is the image timing track (has segments but might be different from main video track)
-            return track != videoTrack && track != overlayTrack
+            return track != videoTrack
         }
         
         // Prefer the main video track, but fall back to image timing track or first available track
@@ -331,10 +347,9 @@ class TransitionService {
                 
                 currentTime = segmentEnd
             }
-        } else if let track = trackToUse {
-            // Create per-segment instructions for proper video rendering
-            // This ensures each segment is properly rendered
-            var currentTime = CMTime.zero
+        } else if !timelineTrackToCompositionTrack.isEmpty || trackToUse != nil {
+            // MULTI-TRACK AWARE: Create per-segment instructions that include ALL active tracks
+            // This ensures segments on V2 are rendered on top of V1, etc.
             
             // Check if fade-to-black is enabled to handle last segment properly
             let fadeToBlackEnabled = project.autoEditSettings?.enableFadeToBlack ?? false
@@ -343,122 +358,198 @@ class TransitionService {
                 ? CMTimeSubtract(compositionDuration, fadeDuration) 
                 : compositionDuration
             
-            print("SkipSlate: TransitionService - Creating instructions for track ID: \(track.trackID), naturalSize: \(track.naturalSize)")
-            
-            for (index, segment) in segments.enumerated() {
-                let segmentDuration = CMTime(seconds: segment.duration, preferredTimescale: 600)
-                guard segmentDuration > .zero else { continue }
-                
-                let segmentEnd = CMTimeAdd(currentTime, segmentDuration)
-                let segmentTimeRange = CMTimeRange(start: currentTime, duration: segmentDuration)
-                let isLastSegment = (index == segments.count - 1)
-                
-                let instruction = AVMutableVideoCompositionInstruction()
-                instruction.timeRange = segmentTimeRange
-                
-                // Create layer instructions - main track first
-                var layerInstructions: [AVMutableVideoCompositionLayerInstruction] = []
-                
-                // Main video track layer
-                let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-                
-                // STEP 1.2: Debug logging before transform check
-                print("SkipSlate: [Transform DEBUG] Building layer instructions for segment index \(index), id=\(segment.id)")
-                print("SkipSlate: [Transform DEBUG] Segment transform values – scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rot=\(segment.effects.rotation), scaleToFill=\(segment.transform.scaleToFillFrame)")
-                
-                // CRITICAL: Only apply transform if there are actual transform effects
-                // If no transform effects, let AVFoundation use track's preferredTransform automatically
-                let hasTransformEffects = segment.effects.scale != 1.0 || 
-                                         segment.effects.positionX != 0.0 || 
-                                         segment.effects.positionY != 0.0 || 
-                                         segment.effects.rotation != 0.0 || 
-                                         segment.transform.scaleToFillFrame
-                
-                // STEP 4.1: Debug logging for createVideoCompositionWithTransitions
-                print("SkipSlate: [Transform DEBUG] createVideoCompositionWithTransitions – segment id=\(segment.id) at currentTime=\(currentTime.seconds) has effects: scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rot=\(segment.effects.rotation), scaleToFill=\(segment.transform.scaleToFillFrame)")
-                print("SkipSlate: [Transform DEBUG] hasTransformEffects = \(hasTransformEffects)")
-                
-                if hasTransformEffects {
-                    // Calculate and apply complete transform (scale, position, rotation, scale to fill)
-                    let finalTransform = calculateCompleteTransform(
-                        for: segment,
-                        track: track,
-                        project: project
-                    )
-                    
-                    // Apply transform - this includes preferredTransform, so we replace it entirely
-                    layerInstruction.setTransform(finalTransform, at: currentTime)
-                    
-                    // STEP 4.2: Keep existing log and ensure it's executed
-                    print("SkipSlate: TransitionService - Applied transform for segment \(index): scale=\(segment.effects.scale), pos=(\(segment.effects.positionX), \(segment.effects.positionY)), rotation=\(segment.effects.rotation)°, scaleToFill=\(segment.transform.scaleToFillFrame)")
-                }
-                // If no transform effects, don't call setTransform - let AVFoundation use preferredTransform automatically
-                
-                // CRITICAL: Handle opacity carefully to avoid overlapping ramps
-                if isLastSegment && fadeToBlackEnabled && fadeStart < segmentEnd {
-                    // Last segment with fade-to-black - set up opacity properly
-                    // If fade starts within this segment, we need a combined ramp
-                    if fadeStart > currentTime {
-                        // Fade starts within this segment - set constant opacity until fade, then fade out
-                        layerInstruction.setOpacity(1.0, at: currentTime)
-                        layerInstruction.setOpacity(1.0, at: fadeStart)
-                        layerInstruction.setOpacityRamp(
-                            fromStartOpacity: 1.0,
-                            toEndOpacity: 0.0,
-                            timeRange: CMTimeRange(start: fadeStart, end: segmentEnd)
-                        )
-                        print("SkipSlate: TransitionService - Last segment with fade-to-black: constant 1.0 until \(CMTimeGetSeconds(fadeStart))s, then fade to 0.0")
-                    } else {
-                        // Fade starts before this segment (shouldn't happen, but handle it)
-                        layerInstruction.setOpacityRamp(
-                            fromStartOpacity: 1.0,
-                            toEndOpacity: 0.0,
-                            timeRange: segmentTimeRange
-                        )
-                    }
-                } else {
-                    // Regular segment - set constant opacity (no ramp needed, just set at start)
-                    layerInstruction.setOpacity(1.0, at: currentTime)
-                    if !isLastSegment {
-                        layerInstruction.setOpacity(1.0, at: segmentEnd)
-                    }
-                }
-                
-                layerInstructions.append(layerInstruction)
-                
-                // CRITICAL: For highlight reels, add overlay track layer if it has content at this time
-                if project.type == .highlightReel, let overlay = overlayTrack {
-                    // Check if overlay track has content at this time range
-                    let overlayTimeRange = overlay.timeRange
-                    let overlayStart = overlayTimeRange.start
-                    let overlayEnd = CMTimeRangeGetEnd(overlayTimeRange)
-                    let intersection = overlayTimeRange.intersection(segmentTimeRange)
-                    let hasOverlayContent = (CMTimeCompare(currentTime, overlayStart) >= 0 && CMTimeCompare(currentTime, overlayEnd) < 0) ||
-                                            intersection.duration > .zero
-                    
-                    if hasOverlayContent {
-                        let overlayLayerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: overlay)
-                        // Overlay should be fully opaque (it fills black space)
-                        overlayLayerInstruction.setOpacity(1.0, at: currentTime)
-                        if !isLastSegment {
-                            overlayLayerInstruction.setOpacity(1.0, at: segmentEnd)
-                        }
-                        layerInstructions.append(overlayLayerInstruction)
-                        print("SkipSlate: TransitionService - Added overlay layer for highlight reel video stacking at \(CMTimeGetSeconds(currentTime))s")
-                    }
-                }
-                
-                instruction.layerInstructions = layerInstructions
-                instructions.append(instruction)
-                
-                if index < 3 || index == segments.count - 1 {
-                    print("SkipSlate: TransitionService - Instruction \(index + 1)/\(segments.count): timeRange=\(CMTimeGetSeconds(segmentTimeRange.start))-\(CMTimeGetSeconds(CMTimeRangeGetEnd(segmentTimeRange)))s, trackID=\(track.trackID)")
-                }
-                
-                currentTime = segmentEnd
+            // Group video segments by their composition start time to find overlapping segments
+            // Also track which composition track each segment uses
+            struct SegmentWithTrack {
+                let segment: Segment
+                let compositionTrack: AVMutableCompositionTrack
+                let timelineTrackIndex: Int
             }
             
-            print("SkipSlate: TransitionService - Created video composition with \(instructions.count) instructions for trackID: \(track.trackID)")
+            var segmentsWithTracks: [SegmentWithTrack] = []
+            for segment in segments {
+                // Skip non-video segments
+                guard segment.kind == .clip else { continue }
+                
+                // Find which timeline track this segment belongs to
+                if let timelineTrack = segmentToTimelineTrack[segment.id],
+                   let compositionTrack = timelineTrackToCompositionTrack[timelineTrack.id] {
+                    segmentsWithTracks.append(SegmentWithTrack(
+                        segment: segment,
+                        compositionTrack: compositionTrack,
+                        timelineTrackIndex: timelineTrack.index
+                    ))
+                } else if let fallbackTrack = trackToUse {
+                    // Fallback: use the main track if no mapping found
+                    segmentsWithTracks.append(SegmentWithTrack(
+                        segment: segment,
+                        compositionTrack: fallbackTrack,
+                        timelineTrackIndex: 0
+                    ))
+                }
+            }
+            
+            print("SkipSlate: TransitionService - Processing \(segmentsWithTracks.count) video segments for multi-track composition")
+            
+            // Build time-based instruction map
+            // For each unique time range, collect all active segments and create one instruction with all layer instructions
+            // Sort segments by their composition start time
+            segmentsWithTracks.sort { $0.segment.compositionStartTime < $1.segment.compositionStartTime }
+            
+            // Create instructions based on time ranges where segment combinations change
+            var timeEvents: [(time: Double, isStart: Bool, segmentIndex: Int)] = []
+            for (index, swt) in segmentsWithTracks.enumerated() {
+                let startTime = swt.segment.compositionStartTime >= 0 ? swt.segment.compositionStartTime : 0
+                let endTime = startTime + swt.segment.duration
+                timeEvents.append((time: startTime, isStart: true, segmentIndex: index))
+                timeEvents.append((time: endTime, isStart: false, segmentIndex: index))
+            }
+            timeEvents.sort { $0.time < $1.time }
+            
+            // Process time events to create instructions for each unique time range
+            var activeSegmentIndices = Set<Int>()
+            var lastTime: Double = 0
+            
+            for (eventIndex, event) in timeEvents.enumerated() {
+                // Skip duplicate times (handled by next event)
+                if eventIndex > 0 && event.time == timeEvents[eventIndex - 1].time {
+                    if event.isStart {
+                        activeSegmentIndices.insert(event.segmentIndex)
+                    } else {
+                        activeSegmentIndices.remove(event.segmentIndex)
+                    }
+                    continue
+                }
+                
+                // Create instruction for time range [lastTime, event.time) - both for active segments AND gaps
+                if lastTime < event.time {
+                    let timeRange = CMTimeRange(
+                        start: CMTime(seconds: lastTime, preferredTimescale: 600),
+                        duration: CMTime(seconds: event.time - lastTime, preferredTimescale: 600)
+                    )
+                    
+                    let instruction = AVMutableVideoCompositionInstruction()
+                    instruction.timeRange = timeRange
+                    
+                    if !activeSegmentIndices.isEmpty {
+                        // Create layer instructions for all active segments
+                        // CRITICAL: AVFoundation renders layer instructions with FIRST = TOP (foreground), LAST = BOTTOM (background)
+                        // So we need HIGHER track indices FIRST (V2 on top/foreground) and LOWER indices LAST (V1 at bottom/background)
+                        // V1 = base/background layer, V2+ = overlay/foreground layers
+                        let activeSegments = activeSegmentIndices.map { segmentsWithTracks[$0] }
+                            .sorted { $0.timelineTrackIndex > $1.timelineTrackIndex } // V2 first (top/foreground), V1 last (bottom/background)
+                        
+                        var layerInstructions: [AVMutableVideoCompositionLayerInstruction] = []
+                        
+                        for swt in activeSegments {
+                            let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: swt.compositionTrack)
+                            let segment = swt.segment
+                            let currentTime = CMTime(seconds: lastTime, preferredTimescale: 600)
+                            let segmentEnd = CMTime(seconds: event.time, preferredTimescale: 600)
+                            
+                            // Check if this segment has transform effects
+                            let hasTransformEffects = segment.effects.scale != 1.0 || 
+                                                     segment.effects.positionX != 0.0 || 
+                                                     segment.effects.positionY != 0.0 || 
+                                                     segment.effects.rotation != 0.0 || 
+                                                     segment.transform.scaleToFillFrame ||
+                                                     segment.effects.compositionMode != .fit ||
+                                                     segment.effects.compositionAnchor != .center
+                            
+                            if hasTransformEffects {
+                                let finalTransform = calculateCompleteTransform(
+                                    for: segment,
+                                    track: swt.compositionTrack,
+                                    project: project
+                                )
+                                layerInstruction.setTransform(finalTransform, at: currentTime)
+                            }
+                            
+                            // Handle opacity - full opacity for all segments
+                            let isInFadeRange = fadeToBlackEnabled && fadeStart.seconds <= event.time
+                            if isInFadeRange {
+                                // Apply fade to black
+                                if fadeStart.seconds > lastTime {
+                                    layerInstruction.setOpacity(1.0, at: currentTime)
+                                    layerInstruction.setOpacityRamp(
+                                        fromStartOpacity: 1.0,
+                                        toEndOpacity: 0.0,
+                                        timeRange: CMTimeRange(start: fadeStart, end: segmentEnd)
+                                    )
+                                } else {
+                                    let fadeProgress = (lastTime - fadeStart.seconds) / fadeDuration.seconds
+                                    let startOpacity = max(0, 1.0 - Float(fadeProgress))
+                                    let endProgress = (event.time - fadeStart.seconds) / fadeDuration.seconds
+                                    let endOpacity = max(0, 1.0 - Float(endProgress))
+                                    layerInstruction.setOpacityRamp(
+                                        fromStartOpacity: startOpacity,
+                                        toEndOpacity: endOpacity,
+                                        timeRange: timeRange
+                                    )
+                                }
+                            } else {
+                                layerInstruction.setOpacity(1.0, at: currentTime)
+                            }
+                            
+                            layerInstructions.append(layerInstruction)
+                        }
+                        
+                        instruction.layerInstructions = layerInstructions
+                        
+                        if instructions.count <= 3 || eventIndex == timeEvents.count - 1 {
+                            let trackDesc = activeSegments.map { "V\($0.timelineTrackIndex)" }.joined(separator: "+")
+                            print("SkipSlate: TransitionService - Instruction \(instructions.count + 1): time=\(lastTime)-\(event.time)s, tracks=[\(trackDesc)]")
+                        }
+                    } else {
+                        // GAP: No active segments - empty layer instructions = black screen
+                        instruction.layerInstructions = []
+                        print("SkipSlate: TransitionService - Gap instruction: time=\(lastTime)-\(event.time)s (no active segments)")
+                    }
+                    
+                    instructions.append(instruction)
+                }
+                
+                // Update active segments
+                if event.isStart {
+                    activeSegmentIndices.insert(event.segmentIndex)
+                } else {
+                    activeSegmentIndices.remove(event.segmentIndex)
+                }
+                lastTime = event.time
+            }
+            
+            // CRITICAL: Ensure instructions cover the ENTIRE composition duration
+            // AVFoundation requires video composition instructions to cover the full duration
+            // Add a final instruction if the last segment ends before composition duration
+            let compositionDurationSeconds = compositionDuration.seconds
+            if lastTime < compositionDurationSeconds {
+                let gapTimeRange = CMTimeRange(
+                    start: CMTime(seconds: lastTime, preferredTimescale: 600),
+                    duration: CMTime(seconds: compositionDurationSeconds - lastTime, preferredTimescale: 600)
+                )
+                let gapInstruction = AVMutableVideoCompositionInstruction()
+                gapInstruction.timeRange = gapTimeRange
+                // Empty layer instructions = black screen for gaps beyond content
+                gapInstruction.layerInstructions = []
+                instructions.append(gapInstruction)
+                print("SkipSlate: TransitionService - Added gap instruction: time=\(lastTime)-\(compositionDurationSeconds)s (end padding)")
+            }
+            
+            // Also check for gaps at the beginning (if first segment doesn't start at 0)
+            if let firstInstruction = instructions.first,
+               firstInstruction.timeRange.start.seconds > 0 {
+                let gapTimeRange = CMTimeRange(
+                    start: .zero,
+                    duration: firstInstruction.timeRange.start
+                )
+                let gapInstruction = AVMutableVideoCompositionInstruction()
+                gapInstruction.timeRange = gapTimeRange
+                gapInstruction.layerInstructions = []
+                instructions.insert(gapInstruction, at: 0)
+                print("SkipSlate: TransitionService - Added gap instruction: time=0.0-\(firstInstruction.timeRange.start.seconds)s (start padding)")
+            }
+            
+            print("SkipSlate: TransitionService - Created \(instructions.count) multi-track instructions (covering full duration: \(compositionDurationSeconds)s)")
         } else {
             // No video track and no images - create empty instruction
             let instruction = AVMutableVideoCompositionInstruction()
@@ -525,13 +616,26 @@ class TransitionService {
         
         // CRITICAL: Build transforms in correct order
         // Transform concatenation: A.concatenating(B) means B is applied first, then A
-        // Visual order: Scale to Fill -> Manual Scale -> Rotation -> Position -> preferredTransform
+        // Visual order: Composition Mode -> Scale to Fill -> Manual Scale -> Rotation -> Position -> preferredTransform
         // Build order (reverse): Start with identity, then add each transform
         
         var transform = CGAffineTransform.identity
         
-        // Step 1: Scale to Fill Frame (if enabled)
+        // Step 0: Apply Composition Mode (Fit, Fill, Letterbox)
+        // This is the base transform that determines how the video fits in the frame
+        let compositionTransform = calculateCompositionModeTransform(
+            sourceSize: CGSize(width: srcWidth, height: srcHeight),
+            projectSize: projectSize,
+            mode: segment.effects.compositionMode,
+            anchor: segment.effects.compositionAnchor
+        )
+        transform = transform.concatenating(compositionTransform)
+        print("SkipSlate: [Transform DEBUG] Applied compositionMode: \(segment.effects.compositionMode), anchor: \(segment.effects.compositionAnchor)")
+        
+        // Step 1: Scale to Fill Frame (if enabled) - overrides composition mode
         if segment.transform.scaleToFillFrame {
+            // Reset and apply scale-to-fill
+            transform = CGAffineTransform.identity
             let scaleX = projWidth / srcWidth
             let scaleY = projHeight / srcHeight
             let scale = max(scaleX, scaleY) // Use larger scale to ensure full coverage
@@ -580,6 +684,89 @@ class TransitionService {
         print("SkipSlate: [Transform DEBUG] calculateCompleteTransform – end for segment id=\(segment.id), result transform=\(transform)")
         
         return transform
+    }
+    
+    /// Calculate transform for composition mode (Fit, Fill, Letterbox)
+    /// - Parameters:
+    ///   - sourceSize: Natural size of the source video
+    ///   - projectSize: Target project frame size
+    ///   - mode: Composition mode
+    ///   - anchor: Anchor position for alignment
+    /// - Returns: CGAffineTransform for the composition mode
+    private func calculateCompositionModeTransform(
+        sourceSize: CGSize,
+        projectSize: CGSize,
+        mode: CompositionMode,
+        anchor: CompositionAnchor
+    ) -> CGAffineTransform {
+        let srcWidth = sourceSize.width
+        let srcHeight = sourceSize.height
+        let projWidth = projectSize.width
+        let projHeight = projectSize.height
+        
+        guard srcWidth > 0, srcHeight > 0, projWidth > 0, projHeight > 0 else {
+            return .identity
+        }
+        
+        // Calculate scale factors
+        let scaleToFit = min(projWidth / srcWidth, projHeight / srcHeight)
+        let scaleToFill = max(projWidth / srcWidth, projHeight / srcHeight)
+        
+        // Determine scale based on mode
+        let scale: CGFloat
+        switch mode {
+        case .fit, .fitWithLetterbox:
+            scale = scaleToFit
+        case .fill:
+            scale = scaleToFill
+        }
+        
+        // Calculate scaled dimensions
+        let scaledWidth = srcWidth * scale
+        let scaledHeight = srcHeight * scale
+        
+        // Calculate translation based on anchor
+        var tx: CGFloat = 0
+        var ty: CGFloat = 0
+        
+        switch anchor {
+        case .center:
+            tx = (projWidth - scaledWidth) / 2.0
+            ty = (projHeight - scaledHeight) / 2.0
+        case .top:
+            tx = (projWidth - scaledWidth) / 2.0
+            ty = 0
+        case .bottom:
+            tx = (projWidth - scaledWidth) / 2.0
+            ty = projHeight - scaledHeight
+        case .left:
+            tx = 0
+            ty = (projHeight - scaledHeight) / 2.0
+        case .right:
+            tx = projWidth - scaledWidth
+            ty = (projHeight - scaledHeight) / 2.0
+        case .topLeft:
+            tx = 0
+            ty = 0
+        case .topRight:
+            tx = projWidth - scaledWidth
+            ty = 0
+        case .bottomLeft:
+            tx = 0
+            ty = projHeight - scaledHeight
+        case .bottomRight:
+            tx = projWidth - scaledWidth
+            ty = projHeight - scaledHeight
+        }
+        
+        // Build transform
+        var t = CGAffineTransform.identity
+        t = t.scaledBy(x: scale, y: scale)
+        t = t.translatedBy(x: tx / scale, y: ty / scale)
+        
+        print("SkipSlate: [Composition DEBUG] mode=\(mode), anchor=\(anchor), scale=\(scale), translation=(\(tx), \(ty))")
+        
+        return t
     }
     
     /// Calculate transform to scale and center-crop video to fill project frame

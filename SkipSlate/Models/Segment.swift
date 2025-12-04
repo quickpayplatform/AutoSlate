@@ -26,6 +26,10 @@ enum CompositionAnchor: String, Codable {
     case bottom
     case left
     case right
+    case topLeft
+    case topRight
+    case bottomLeft
+    case bottomRight
 }
 
 /// Transform settings for a segment (scale to fill, pan, etc.)
@@ -83,7 +87,8 @@ struct Segment: Identifiable, Codable {
     
     // Composition timeline position (explicit start time in the final video)
     // This allows gaps - segments don't automatically shift when others are deleted
-    var compositionStartTime: Double = 0.0  // seconds in composition timeline
+    // Use -1 as sentinel value to indicate "not explicitly set" (so 0.0 is valid for first segment)
+    var compositionStartTime: Double = -1.0  // seconds in composition timeline, -1 = not set
     
     // For gap segments: explicit duration
     // For clip segments: calculated from sourceStart/sourceEnd
@@ -133,7 +138,7 @@ struct Segment: Identifiable, Codable {
         enabled: Bool = true,
         colorIndex: Int = 0,
         effects: SegmentEffects = SegmentEffects(),
-        compositionStartTime: Double = 0.0,
+        compositionStartTime: Double = -1.0,  // -1 = not explicitly set
         transform: SegmentTransform = SegmentTransform()
     ) {
         self.id = id
