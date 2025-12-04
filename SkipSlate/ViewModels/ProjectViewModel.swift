@@ -3041,9 +3041,10 @@ class ProjectViewModel: ObservableObject {
         }
         
         // Sort segments by composition start time
+        // CRITICAL: Use >= 0, not > 0, because position 0.0 is valid (sentinel is -1.0)
         let sortedSegments = validSegments.sorted { seg1, seg2 in
-            let start1 = seg1.compositionStartTime > 0 ? seg1.compositionStartTime : compositionStart(for: seg1)
-            let start2 = seg2.compositionStartTime > 0 ? seg2.compositionStartTime : compositionStart(for: seg2)
+            let start1 = seg1.compositionStartTime >= 0 ? seg1.compositionStartTime : compositionStart(for: seg1)
+            let start2 = seg2.compositionStartTime >= 0 ? seg2.compositionStartTime : compositionStart(for: seg2)
             return start1 < start2
         }
         
@@ -3057,7 +3058,8 @@ class ProjectViewModel: ObservableObject {
                 continue
             }
             
-            let segmentStart = segment.compositionStartTime > 0 ? segment.compositionStartTime : compositionStart(for: segment)
+            // CRITICAL: Use >= 0, not > 0, because position 0.0 is valid (sentinel is -1.0)
+            let segmentStart = segment.compositionStartTime >= 0 ? segment.compositionStartTime : compositionStart(for: segment)
             let segmentEnd = segmentStart + segment.duration
             
             // Safety check: Validate calculated times

@@ -582,9 +582,10 @@ class ExportService {
         // Sort segments by compositionStartTime to maintain timeline order
         let sortedSegments = project.segments
             .filter { $0.enabled }
+            // CRITICAL: Use >= 0, not > 0, because position 0.0 is valid (sentinel is -1.0)
             .sorted { seg1, seg2 in
-                let start1 = seg1.compositionStartTime > 0 ? seg1.compositionStartTime : 0
-                let start2 = seg2.compositionStartTime > 0 ? seg2.compositionStartTime : 0
+                let start1 = seg1.compositionStartTime >= 0 ? seg1.compositionStartTime : 0
+                let start2 = seg2.compositionStartTime >= 0 ? seg2.compositionStartTime : 0
                 return start1 < start2
             }
         
@@ -615,7 +616,8 @@ class ExportService {
             }
             
             // Use compositionStartTime if available, otherwise use currentTime
-            let segmentStartTime = segment.compositionStartTime > 0 
+            // CRITICAL: Use >= 0, not > 0, because position 0.0 is valid (sentinel is -1.0)
+            let segmentStartTime = segment.compositionStartTime >= 0 
                 ? CMTime(seconds: segment.compositionStartTime, preferredTimescale: timescale)
                 : currentTime
             

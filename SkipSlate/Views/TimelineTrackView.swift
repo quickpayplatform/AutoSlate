@@ -277,9 +277,10 @@ struct TimelineTrackView: View {
         var items: [TimelineItem] = []
         
         // Sort all segments (clips and gaps) by composition start time
+        // CRITICAL: Use >= 0, not > 0, because position 0.0 is valid (sentinel is -1.0)
         let sortedSegments = allSegments.sorted { seg1, seg2 in
-            let start1 = seg1.compositionStartTime > 0 ? seg1.compositionStartTime : projectViewModel.compositionStart(for: seg1)
-            let start2 = seg2.compositionStartTime > 0 ? seg2.compositionStartTime : projectViewModel.compositionStart(for: seg2)
+            let start1 = seg1.compositionStartTime >= 0 ? seg1.compositionStartTime : projectViewModel.compositionStart(for: seg1)
+            let start2 = seg2.compositionStartTime >= 0 ? seg2.compositionStartTime : projectViewModel.compositionStart(for: seg2)
             return start1 < start2
         }
         
@@ -309,7 +310,8 @@ struct TimelineTrackView: View {
         
         switch item {
         case .segment(let segment):
-            time = segment.compositionStartTime > 0 ? segment.compositionStartTime : projectViewModel.compositionStart(for: segment)
+            // CRITICAL: Use >= 0, not > 0, because position 0.0 is valid (sentinel is -1.0)
+            time = segment.compositionStartTime >= 0 ? segment.compositionStartTime : projectViewModel.compositionStart(for: segment)
         case .gap(_, let startTime):
             time = startTime
         }
